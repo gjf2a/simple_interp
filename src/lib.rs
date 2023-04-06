@@ -205,6 +205,7 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize> Tokenized<MAX_TOKE
 
 #[cfg(test)]
 mod tests {
+    use core::fmt::Display;
     use std::fs::read_to_string;
     use super::*;
 
