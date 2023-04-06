@@ -27,6 +27,20 @@ const GRAMMAR: &str = r#"
 "#;
 */
 
+use bare_metal_map::BareMetalMap;
+use gc_heap::{Pointer, CopyingHeap};
+
+pub struct Interpreter<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize, const HEAP_SIZE: usize, const MAX_BLOCKS: usize> {
+    tokens: Tokenized<MAX_TOKENS, MAX_LITERAL_CHARS>,
+    token: usize,
+    heap: CopyingHeap<u64, HEAP_SIZE, MAX_BLOCKS>,
+}
+
+pub struct StackFrame<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> {
+    start_token: usize,
+    vars: BareMetalMap<Token<MAX_LITERAL_CHARS>, Pointer, MAX_LOCAL_VARS>,
+}
+
 #[derive(Debug)]
 pub enum TokenResult<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize> {
     Ok(Tokenized<MAX_TOKENS, MAX_LITERAL_CHARS>),
