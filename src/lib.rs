@@ -27,8 +27,6 @@ const GRAMMAR: &str = r#"
 "#;
 */
 
-use core::fmt::Display;
-
 #[derive(Debug)]
 pub enum TokenResult<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize> {
     Ok(Tokenized<MAX_TOKENS, MAX_LITERAL_CHARS>),
