@@ -28,14 +28,40 @@ const GRAMMAR: &str = r#"
 */
 
 use bare_metal_map::BareMetalMap;
-use gc_heap::{Pointer, CopyingHeap};
+use gc_heap::{Pointer, CopyingHeap, Tracer};
 
 pub struct Interpreter<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize, const HEAP_SIZE: usize, const MAX_BLOCKS: usize> {
     tokens: Tokenized<MAX_TOKENS, MAX_LITERAL_CHARS>,
     token: usize,
     heap: CopyingHeap<u64, HEAP_SIZE, MAX_BLOCKS>,
+    stack: [StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS>; STACK_DEPTH],
+    stack_level: usize,
 }
 
+impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize, const HEAP_SIZE: usize, const MAX_BLOCKS: usize> Interpreter<MAX_TOKENS, MAX_LITERAL_CHARS, STACK_DEPTH, MAX_LOCAL_VARS, HEAP_SIZE, MAX_BLOCKS> {
+    pub fn new(program: &str) -> Self {
+        let tokens = Tokenized::tokenize(program).unwrap();
+        Self {
+            tokens,
+            token: 0,
+            heap: CopyingHeap::new(),
+            stack: [StackFrame::default(); STACK_DEPTH],
+            stack_level: 0,
+        }
+    }
+
+    pub fn tick(&mut self) {
+        
+    }
+}
+
+impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize, const HEAP_SIZE: usize, const MAX_BLOCKS: usize> Tracer for Interpreter<MAX_TOKENS, MAX_LITERAL_CHARS, STACK_DEPTH, MAX_LOCAL_VARS, HEAP_SIZE, MAX_BLOCKS> {
+    fn trace(&self, blocks_used: &mut [bool]) {
+        todo!()
+    }
+}
+
+#[derive(Copy, Clone, Default)]
 pub struct StackFrame<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> {
     start_token: usize,
     vars: BareMetalMap<Token<MAX_LITERAL_CHARS>, Pointer, MAX_LOCAL_VARS>,
@@ -88,6 +114,12 @@ pub enum Token<const MAX_LITERAL_CHARS: usize> {
     And,
     Or,
     Not,
+}
+
+impl<const MAX_LITERAL_CHARS: usize> Default for Token<MAX_LITERAL_CHARS> {
+    fn default() -> Self {
+        Token::False
+    }
 }
 
 #[derive(Debug)]
