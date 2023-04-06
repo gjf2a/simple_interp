@@ -1,0 +1,13 @@
+sum := 0
+count := 0
+done := false
+while not done {
+    num := input("Enter a number:")
+    if num == "quit" {
+        done := true
+    } else {
+        sum := sum + num
+        count := count + 1
+    }
+}
+print(sum / count)
