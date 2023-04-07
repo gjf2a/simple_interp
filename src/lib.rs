@@ -30,6 +30,11 @@ const GRAMMAR: &str = r#"
 use bare_metal_map::BareMetalMap;
 use gc_heap::{Pointer, CopyingHeap, Tracer};
 
+pub trait InterpreterIo {
+    fn print(&mut self, chars: &[u8]);
+    fn input(&mut self, buffer: &mut [u8]);
+}
+
 pub struct Interpreter<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize, const HEAP_SIZE: usize, const MAX_BLOCKS: usize> {
     tokens: Tokenized<MAX_TOKENS, MAX_LITERAL_CHARS>,
     token: usize,
@@ -50,9 +55,53 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH:
         }
     }
 
-    pub fn tick(&mut self) {
-        
+    pub fn tick<I: InterpreterIo>(&mut self, io: &mut I) {
+        match self.tokens.tokens[self.token] {
+            Token::Print => {
+                self.token += 1;
+                match self.tokens.tokens[self.token] {
+                    Token::OpenParen => {
+                        self.token += 1;
+
+                    }
+                    _ => {todo!{"Something or other"};}      
+                }
+            }
+            Token::Symbol(s) => {
+                self.token += 1;
+                match self.tokens.tokens[self.token] {
+                    Token::Assign => {
+
+                    }
+                    Token::OpenParen => {
+                        todo!("Function call");
+                    }
+                    _ => {todo!{"Something or other"};}        
+                }
+            }
+            _ => {todo!{"Something or other"};}
+        }
     }
+
+    fn parse_expr(&mut self) -> Value {
+        match self.tokens.tokens[self.token] {
+            Token::Number(n) => {
+                todo!("determine if int or float - then store")
+            }
+            _ => {todo!{"Something or other"};}
+        }
+    }
+}
+
+struct Value {
+    location: Pointer,
+    t: ValueType,
+}
+
+enum ValueType {
+    Integer,
+    Float,
+    String,
 }
 
 impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize, const HEAP_SIZE: usize, const MAX_BLOCKS: usize> Tracer for Interpreter<MAX_TOKENS, MAX_LITERAL_CHARS, STACK_DEPTH, MAX_LOCAL_VARS, HEAP_SIZE, MAX_BLOCKS> {
@@ -114,6 +163,8 @@ pub enum Token<const MAX_LITERAL_CHARS: usize> {
     And,
     Or,
     Not,
+    Print,
+    Input,
 }
 
 impl<const MAX_LITERAL_CHARS: usize> Default for Token<MAX_LITERAL_CHARS> {
@@ -240,6 +291,8 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize> Tokenized<MAX_TOKE
             ['a', 'n', 'd'] => Some(Token::And),
             ['o', 'r'] => Some(Token::Or),
             ['n', 'o', 't'] => Some(Token::Not),
+            ['p', 'r', 'i', 'n', 't'] => Some(Token::Print),
+            ['i', 'n', 'p', 'u', 't'] => Some(Token::Input),
             _ => None
         }
     }
@@ -253,7 +306,31 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize> Tokenized<MAX_TOKE
 mod tests {
     use core::fmt::Display;
     use std::fs::read_to_string;
+    use std::collections::VecDeque;
+
     use super::*;
+
+    #[derive(Clone, Debug, Default)]
+    struct TestIo {
+        printed: String,
+        inputs: VecDeque<String>,
+    }
+
+    impl InterpreterIo for TestIo {
+        fn print(&mut self, chars: &[u8]) {
+            for c in chars.iter() {
+                self.printed.push(*c as char);
+            }
+        }
+
+        fn input(&mut self, buffer: &mut [u8]) {
+            let msg = self.inputs.pop_front().unwrap();
+            for (i, c) in msg.char_indices().take(buffer.len()) {
+                buffer[i] = c as u8;
+            }
+            self.inputs.push_back(msg);
+        }
+    }
 
     impl <const MAX_LITERAL_CHARS: usize> Token<MAX_LITERAL_CHARS> {
         fn var(&self) -> Option<String> {
