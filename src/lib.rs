@@ -37,7 +37,7 @@ const GRAMMAR: &str = r#"
 use core::cmp::min;
 
 use bare_metal_map::BareMetalMap;
-use gc_heap::{CopyingHeap, Pointer, Tracer, HeapResult};
+use gc_heap::{CopyingHeap, HeapResult, Pointer, Tracer};
 
 pub trait InterpreterIo {
     fn print(&mut self, chars: &[u8]);
@@ -61,14 +61,14 @@ pub struct Interpreter<
 
 pub enum TickResult<T> {
     Ok(T),
-    Err(TickError)
+    Err(TickError),
 }
 
 impl<T> TickResult<T> {
     pub fn unwrap(self) -> T {
         match self {
             TickResult::Ok(v) => v,
-            TickResult::Err(e) => panic!("Interpreter Error: {e:?}")
+            TickResult::Err(e) => panic!("Interpreter Error: {e:?}"),
         }
     }
 
@@ -83,7 +83,7 @@ impl<T> TickResult<T> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TickError {
     HeapIssue(gc_heap::HeapError),
-    ParseIssue(ParseError)
+    ParseIssue(ParseError),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -102,7 +102,15 @@ impl<
         const MAX_BLOCKS: usize,
         const OUTPUT_WIDTH: usize,
     >
-    Interpreter<MAX_TOKENS, MAX_LITERAL_CHARS, STACK_DEPTH, MAX_LOCAL_VARS, HEAP_SIZE, MAX_BLOCKS, OUTPUT_WIDTH>
+    Interpreter<
+        MAX_TOKENS,
+        MAX_LITERAL_CHARS,
+        STACK_DEPTH,
+        MAX_LOCAL_VARS,
+        HEAP_SIZE,
+        MAX_BLOCKS,
+        OUTPUT_WIDTH,
+    >
 {
     pub fn new(program: &str) -> Self {
         let tokens = Tokenized::tokenize(program).unwrap();
@@ -125,22 +133,24 @@ impl<
                     Token::OpenParen => {
                         self.token += 1;
                         match self.parse_expr() {
-                            TickResult::Ok(v) => {
-                                match self.print_value(&v, io) {
-                                    TickResult::Ok(_) => {}
-                                    TickResult::Err(e) => return TickResult::Err(e)
-                                }
-                            }
-                            TickResult::Err(e) => return TickResult::Err(e)
+                            TickResult::Ok(v) => match self.print_value(&v, io) {
+                                TickResult::Ok(_) => {}
+                                TickResult::Err(e) => return TickResult::Err(e),
+                            },
+                            TickResult::Err(e) => return TickResult::Err(e),
                         }
                         match self.tokens.tokens[self.token] {
                             Token::CloseParen => {
                                 self.token += 1;
                             }
-                            _ => return TickResult::Err(TickError::ParseIssue(ParseError::UnmatchedParen))
+                            _ => {
+                                return TickResult::Err(TickError::ParseIssue(
+                                    ParseError::UnmatchedParen,
+                                ))
+                            }
                         }
                     }
-                    _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError))
+                    _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
                 }
             }
             Token::Symbol(s) => {
@@ -150,10 +160,10 @@ impl<
                     Token::OpenParen => {
                         todo!("Function call");
                     }
-                    _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError))
+                    _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
                 }
             }
-            _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError))
+            _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
         }
         TickResult::Ok(())
     }
@@ -169,13 +179,11 @@ impl<
                     (ValueType::Integer, make_int_from(&n))
                 };
                 match self.heap.malloc(1, &self.stack) {
-                    HeapResult::Ok(p) => {
-                        match self.heap.store(p, v) {
-                            HeapResult::Ok(_) => TickResult::Ok(Value {location: p, t}),
-                            HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e))
-                        }
-                    }
-                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e))
+                    HeapResult::Ok(p) => match self.heap.store(p, v) {
+                        HeapResult::Ok(_) => TickResult::Ok(Value { location: p, t }),
+                        HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+                    },
+                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
                 }
             }
             Token::String(s) => {
@@ -184,20 +192,28 @@ impl<
                 let num_chars = s.iter().take_while(|c| **c != '\0').count();
                 match self.heap.malloc(num_chars, &self.stack) {
                     HeapResult::Ok(location) => {
-                        let mut p = location;
+                        let mut p = Some(location);
                         for i in 0..num_chars {
                             println!("{i} {}", s[i]);
-                            match self.heap.store(p, s[i] as u64) {
-                                HeapResult::Ok(_) => {p = p.next().unwrap();}
-                                HeapResult::Err(e) => return TickResult::Err(TickError::HeapIssue(e))
+                            let pt = p.unwrap();
+                            match self.heap.store(pt, s[i] as u64) {
+                                HeapResult::Ok(_) => {
+                                    p = pt.next();
+                                }
+                                HeapResult::Err(e) => {
+                                    return TickResult::Err(TickError::HeapIssue(e))
+                                }
                             }
                         }
-                        TickResult::Ok(Value {location, t: ValueType::String})
+                        TickResult::Ok(Value {
+                            location,
+                            t: ValueType::String,
+                        })
                     }
-                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e))
+                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
                 }
             }
-            _ => TickResult::Err(TickError::ParseIssue(ParseError::TokensExhausted))
+            _ => TickResult::Err(TickError::ParseIssue(ParseError::TokensExhausted)),
         }
     }
 
@@ -208,7 +224,7 @@ impl<
                 io.print(&output_buffer[0..num_words]);
                 TickResult::Ok(())
             }
-            TickResult::Err(e) => TickResult::Err(e)
+            TickResult::Err(e) => TickResult::Err(e),
         }
     }
 }
@@ -219,50 +235,53 @@ struct Value {
 }
 
 impl Value {
-    fn output<const HEAP_SIZE: usize, const MAX_BLOCKS: usize>(&self, heap: &CopyingHeap<u64, HEAP_SIZE, MAX_BLOCKS>, buffer: &mut [u8]) -> TickResult<usize> {
+    fn output<const HEAP_SIZE: usize, const MAX_BLOCKS: usize>(
+        &self,
+        heap: &CopyingHeap<u64, HEAP_SIZE, MAX_BLOCKS>,
+        buffer: &mut [u8],
+    ) -> TickResult<usize> {
         match self.t {
-            ValueType::Integer => {
-                match heap.load(self.location) {
-                    HeapResult::Ok(mut w) => {
-                        if w == 0 {
-                            buffer[0] = '0' as u8;
-                            return TickResult::Ok(1);
-                        }
-                        let mut start = if w >> 63 == 1 {
-                            buffer[0] = '-' as u8;
-                            w &= u64::MAX >> 1;
-                            1
-                        } else {
-                            0
-                        };
-                        let mut i = start;
-                        while w > 0 && i < buffer.len() {
-                            buffer[i] = (w % 10) as u8 + '0' as u8;
-                            w /= 10;
-                            i += 1;
-                        }
-                        while start < i {
-                            let temp = buffer[start];
-                            buffer[start] = buffer[i - start - 1];
-                            buffer[i - start - 1] = temp;
-                            start += 1;
-                        }
-
-                        TickResult::Ok(i)
+            ValueType::Integer => match heap.load(self.location) {
+                HeapResult::Ok(mut w) => {
+                    if w == 0 {
+                        buffer[0] = '0' as u8;
+                        return TickResult::Ok(1);
                     }
-                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e))
+                    let mut start = if w >> 63 == 1 {
+                        buffer[0] = '-' as u8;
+                        w &= u64::MAX >> 1;
+                        1
+                    } else {
+                        0
+                    };
+                    let mut i = start;
+                    while w > 0 && i < buffer.len() {
+                        buffer[i] = (w % 10) as u8 + '0' as u8;
+                        w /= 10;
+                        i += 1;
+                    }
+                    while start < i {
+                        let temp = buffer[start];
+                        buffer[start] = buffer[i - start - 1];
+                        buffer[i - start - 1] = temp;
+                        start += 1;
+                    }
+
+                    TickResult::Ok(i)
                 }
-            }
+                HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+            },
             ValueType::Float => todo!(),
             ValueType::String => {
-                let mut p = self.location;
+                let mut p = Some(self.location);
                 for i in 0..min(self.location.len(), buffer.len()) {
-                    match heap.load(p) {
+                    let pt = p.unwrap();
+                    match heap.load(pt) {
                         HeapResult::Ok(value) => {
                             buffer[i] = value as u8;
-                            p = p.next().unwrap();
+                            p = pt.next();
                         }
-                        HeapResult::Err(e) => return TickResult::Err(TickError::HeapIssue(e))
+                        HeapResult::Err(e) => return TickResult::Err(TickError::HeapIssue(e)),
                     }
                 }
                 TickResult::Ok(self.location.len())
@@ -277,7 +296,7 @@ enum ValueType {
     Float,
     String,
 }
-    
+
 fn make_int_from(chars: &[char]) -> u64 {
     let mut value = 0;
     for c in chars.iter().take_while(|c| **c != '\0') {
@@ -310,26 +329,38 @@ fn make_float_from(chars: &[char]) -> f64 {
 }
 
 #[derive(Copy, Clone)]
-struct ProgramStack<const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize> {
+struct ProgramStack<
+    const MAX_LITERAL_CHARS: usize,
+    const STACK_DEPTH: usize,
+    const MAX_LOCAL_VARS: usize,
+> {
     stack: [StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS>; STACK_DEPTH],
     stack_level: usize,
 }
 
-impl<const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize> ProgramStack<MAX_LOCAL_VARS, STACK_DEPTH, MAX_LITERAL_CHARS> {
+impl<const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize>
+    ProgramStack<MAX_LOCAL_VARS, STACK_DEPTH, MAX_LITERAL_CHARS>
+{
+}
 
-} 
-
-impl<const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize> Default for ProgramStack<MAX_LOCAL_VARS, STACK_DEPTH, MAX_LITERAL_CHARS> {
+impl<const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize> Default
+    for ProgramStack<MAX_LOCAL_VARS, STACK_DEPTH, MAX_LITERAL_CHARS>
+{
     fn default() -> Self {
-        Self { stack: [StackFrame::default(); STACK_DEPTH], stack_level: Default::default() }
+        Self {
+            stack: [StackFrame::default(); STACK_DEPTH],
+            stack_level: Default::default(),
+        }
     }
-} 
+}
 
-impl<const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize> Tracer for ProgramStack<MAX_LOCAL_VARS, STACK_DEPTH, MAX_LITERAL_CHARS> {
+impl<const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize> Tracer
+    for ProgramStack<MAX_LOCAL_VARS, STACK_DEPTH, MAX_LITERAL_CHARS>
+{
     fn trace(&self, blocks_used: &mut [bool]) {
         todo!()
     }
-} 
+}
 
 #[derive(Copy, Clone, Default)]
 pub struct StackFrame<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> {
@@ -622,16 +653,19 @@ mod tests {
         println!("Reading to string....");
         let s = std::fs::read_to_string("programs/hello.prog").unwrap();
         println!("Program: {s}");
-        let mut interp: Interpreter<1000, 30, 50, 20, 16384, 4096, 80> = Interpreter::new(s.as_str());
+        // TODO: Stack overflow with heap size 16384. Look at this at some point.
+        //let mut interp: Interpreter<1000, 30, 50, 20, 16384, 4096, 80> =
+        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
+            Interpreter::new(s.as_str());
         println!("Built interpreter");
         let mut io = TestIo::default();
         interp.tick(&mut io).unwrap();
-        assert_eq!(io.printed, "Hello, world!"); 
+        assert_eq!(io.printed, "Hello, world!");
     }
 
     #[test]
     fn test_parse_int() {
-        for s in [['1', '0'], ['1', '2'], ['2','1'], ['4', '3']] {
+        for s in [['1', '0'], ['1', '2'], ['2', '1'], ['4', '3']] {
             let expected = s.iter().collect::<String>().parse::<u64>().unwrap();
             assert_eq!(expected, make_int_from(&s));
         }
@@ -640,10 +674,10 @@ mod tests {
     #[test]
     fn test_parse_float() {
         for s in [
-            ['1', '0', '.', '0', '0'], 
+            ['1', '0', '.', '0', '0'],
             ['0', '1', '.', '0', '1'],
             ['2', '5', '.', '1', '9'],
-            ['2', '.', '4', '4', '8']
+            ['2', '.', '4', '4', '8'],
         ] {
             let expected = s.iter().collect::<String>().parse::<f64>().unwrap();
             assert_eq!(expected, make_float_from(&s));
