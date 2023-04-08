@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+//#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -106,6 +106,7 @@ impl<
 {
     pub fn new(program: &str) -> Self {
         let tokens = Tokenized::tokenize(program).unwrap();
+        println!("Read in tokens: {tokens:?}");
         Self {
             tokens,
             token: 0,
@@ -115,8 +116,10 @@ impl<
     }
 
     pub fn tick<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<()> {
+        println!("*** tick");
         match self.tokens.tokens[self.token] {
             Token::Print => {
+                println!("*** Print token");
                 self.token += 1;
                 match self.tokens.tokens[self.token] {
                     Token::OpenParen => {
@@ -176,12 +179,14 @@ impl<
                 }
             }
             Token::String(s) => {
+                println!("**string token {:?}", s);
                 self.token += 1;
                 let num_chars = s.iter().take_while(|c| **c != '\0').count();
                 match self.heap.malloc(num_chars, &self.stack) {
                     HeapResult::Ok(location) => {
                         let mut p = location;
                         for i in 0..num_chars {
+                            println!("{i} {}", s[i]);
                             match self.heap.store(p, s[i] as u64) {
                                 HeapResult::Ok(_) => {p = p.next().unwrap();}
                                 HeapResult::Err(e) => return TickResult::Err(TickError::HeapIssue(e))
@@ -457,13 +462,15 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize>
                 try_token!(result, Token::String(str_buffer), num_chars, str_buffer);
             } else if c == '"' {
                 inside_string = true;
+            } else if inside_string {
+                try_add_char!(c, num_chars, str_buffer);
             } else if let Some(token) = Self::match_single(c) {
                 try_terminate!(result, num_chars, str_buffer);
                 result.push_token(token);
-            } else if inside_string || !c.is_whitespace() {
-                try_add_char!(c, num_chars, str_buffer);
             } else if c.is_whitespace() {
                 try_terminate!(result, num_chars, str_buffer);
+            } else {
+                try_add_char!(c, num_chars, str_buffer);
             }
         }
         TokenResult::Ok(result)
@@ -597,10 +604,29 @@ mod tests {
     }
 
     #[test]
-    fn it_works() {
+    fn test_token_1() {
         let example = read_to_string("programs/average.prog").unwrap();
         let tokens = Tokenized::<500, 100>::tokenize(example.as_str()).unwrap();
         println!("{tokens}");
+    }
+
+    #[test]
+    fn test_token_2() {
+        let example = read_to_string("programs/hello.prog").unwrap();
+        let tokens = Tokenized::<500, 100>::tokenize(example.as_str()).unwrap();
+        println!("{tokens}");
+    }
+
+    #[test]
+    fn test_hello_world() {
+        println!("Reading to string....");
+        let s = std::fs::read_to_string("programs/hello.prog").unwrap();
+        println!("Program: {s}");
+        let mut interp: Interpreter<1000, 30, 50, 20, 16384, 4096, 80> = Interpreter::new(s.as_str());
+        println!("Built interpreter");
+        let mut io = TestIo::default();
+        interp.tick(&mut io).unwrap();
+        assert_eq!(io.printed, "Hello, world!"); 
     }
 
     #[test]
