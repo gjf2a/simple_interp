@@ -15,7 +15,7 @@ source = "git+https://github.com/gjf2a/bare_metal_queue#73b2b35b125dc0df65d92350
 [[package]]
 name = "gc_heap"
 version = "0.1.0"
-source = "git+https://github.com/gjf2a/gc_heap#c5bf066264bff1b686fcc130a8c6a5938a6f4d88"
+source = "git+https://github.com/gjf2a/gc_heap#0bf490074e20bfa2e5d852f95363d3ca37d27ea9"
 dependencies = [
  "bare_metal_queue",
 ]

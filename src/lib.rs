@@ -1,5 +1,12 @@
 #![cfg_attr(not(test), no_std)]
 
+// With weird git errors that mess with rust-analyzer, try this:
+//
+// export CARGO_NET_GIT_FETCH_WITH_CLI=true
+// cargo clean
+// cargo update
+// cargo build
+
 /*
 const GRAMMAR: &str = r#"
     script     := line script | line ;
@@ -82,7 +89,8 @@ pub enum TickError {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ParseError {
     UnmatchedParen,
-    SyntaxError
+    SyntaxError,
+    TokensExhausted,
 }
 
 impl<
@@ -113,9 +121,13 @@ impl<
                 match self.tokens.tokens[self.token] {
                     Token::OpenParen => {
                         self.token += 1;
-                        let v = self.parse_expr();
-                        match self.print_value(&v, io) {
-                            TickResult::Ok(_) => {}
+                        match self.parse_expr() {
+                            TickResult::Ok(v) => {
+                                match self.print_value(&v, io) {
+                                    TickResult::Ok(_) => {}
+                                    TickResult::Err(e) => return TickResult::Err(e)
+                                }
+                            }
                             TickResult::Err(e) => return TickResult::Err(e)
                         }
                         match self.tokens.tokens[self.token] {
@@ -143,21 +155,44 @@ impl<
         TickResult::Ok(())
     }
 
-    fn parse_expr(&mut self) -> Value {
+    fn parse_expr(&mut self) -> TickResult<Value> {
         match self.tokens.tokens[self.token] {
             Token::Number(n) => {
+                self.token += 1;
                 let (t, v) = if n.contains(&'.') {
                     let float_val = make_float_from(&n);
                     (ValueType::Integer, float_val.to_bits())
                 } else {
                     (ValueType::Integer, make_int_from(&n))
                 };
-                let p = self.heap.malloc(1, &self.stack);
-                todo!("determine if int or float - then store")
+                match self.heap.malloc(1, &self.stack) {
+                    HeapResult::Ok(p) => {
+                        match self.heap.store(p, v) {
+                            HeapResult::Ok(_) => TickResult::Ok(Value {location: p, t}),
+                            HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e))
+                        }
+                    }
+                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e))
+                }
             }
-            _ => {
-                todo! {"Something or other"};
+            Token::String(s) => {
+                self.token += 1;
+                let num_chars = s.iter().take_while(|c| **c != '\0').count();
+                match self.heap.malloc(num_chars, &self.stack) {
+                    HeapResult::Ok(location) => {
+                        let mut p = location;
+                        for i in 0..num_chars {
+                            match self.heap.store(p, s[i] as u64) {
+                                HeapResult::Ok(_) => {p = p.next().unwrap();}
+                                HeapResult::Err(e) => return TickResult::Err(TickError::HeapIssue(e))
+                            }
+                        }
+                        TickResult::Ok(Value {location, t: ValueType::String})
+                    }
+                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e))
+                }
             }
+            _ => TickResult::Err(TickError::ParseIssue(ParseError::TokensExhausted))
         }
     }
 
@@ -220,6 +255,7 @@ impl Value {
                     match heap.load(p) {
                         HeapResult::Ok(value) => {
                             buffer[i] = value as u8;
+                            p = p.next().unwrap();
                         }
                         HeapResult::Err(e) => return TickResult::Err(TickError::HeapIssue(e))
                     }
@@ -239,7 +275,7 @@ enum ValueType {
     
 fn make_int_from(chars: &[char]) -> u64 {
     let mut value = 0;
-    for c in chars.iter() {
+    for c in chars.iter().take_while(|c| **c != '\0') {
         value *= 10;
         value += *c as u64 - '0' as u64;
     }
@@ -249,7 +285,7 @@ fn make_int_from(chars: &[char]) -> u64 {
 fn make_float_from(chars: &[char]) -> f64 {
     let mut value = 0.0;
     let mut shifter = None;
-    for c in chars.iter() {
+    for c in chars.iter().take_while(|c| **c != '\0') {
         if *c == '.' {
             shifter = Some(0.1);
         } else {
