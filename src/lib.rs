@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+//#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -254,19 +254,20 @@ impl Value {
                         0
                     };
                     let mut i = start;
-                    while w > 0 && i < buffer.len() {
+                    while w > 0 && i < buffer.len() - 1 {
                         buffer[i] = (w % 10) as u8 + '0' as u8;
                         w /= 10;
                         i += 1;
                     }
-                    while start < i {
+                    while start < i / 2 {
                         let temp = buffer[start];
                         buffer[start] = buffer[i - start - 1];
                         buffer[i - start - 1] = temp;
                         start += 1;
                     }
+                    buffer[i] = '\n' as u8;
 
-                    TickResult::Ok(i)
+                    TickResult::Ok(i+1)
                 }
                 HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
             },
@@ -664,7 +665,6 @@ mod tests {
     #[test]
     fn test_multiprint() {
         let s = std::fs::read_to_string("programs/multiprint.prog").unwrap();
-        // TODO: Stack overflow with heap size 16384. Look at this at some point.
         let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
             Interpreter::new(s.as_str());
         let mut io = TestIo::default();
@@ -672,6 +672,18 @@ mod tests {
             interp.tick(&mut io).unwrap();
         }
         assert_eq!(io.printed, "one\ntwo\nthree\n");
+    }
+
+    #[test]
+    fn test_printnums() {
+        let s = std::fs::read_to_string("programs/printnums.prog").unwrap();
+        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
+            Interpreter::new(s.as_str());
+        let mut io = TestIo::default();
+        while !interp.completed() {
+            interp.tick(&mut io).unwrap();
+        }
+        assert_eq!(io.printed, "1\n257\n");
     }
 
     #[test]
