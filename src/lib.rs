@@ -123,8 +123,12 @@ impl<
         }
     }
 
+    pub fn completed(&self) -> bool {
+        self.token >= self.tokens.num_tokens
+    }
+
     pub fn tick<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<()> {
-        println!("*** tick");
+        println!("*** tick {}/{}", self.token, self.tokens.tokens.len());
         match self.tokens.tokens[self.token] {
             Token::Print => {
                 println!("*** Print token");
@@ -274,7 +278,8 @@ impl Value {
             ValueType::Float => todo!(),
             ValueType::String => {
                 let mut p = Some(self.location);
-                for i in 0..min(self.location.len(), buffer.len()) {
+                let end = min(self.location.len(), buffer.len() - 1);
+                for i in 0..end {
                     let pt = p.unwrap();
                     match heap.load(pt) {
                         HeapResult::Ok(value) => {
@@ -284,7 +289,8 @@ impl Value {
                         HeapResult::Err(e) => return TickResult::Err(TickError::HeapIssue(e)),
                     }
                 }
-                TickResult::Ok(self.location.len())
+                buffer[end] = '\n' as u8;
+                TickResult::Ok(end + 1)
             }
         }
     }
@@ -650,17 +656,38 @@ mod tests {
 
     #[test]
     fn test_hello_world() {
-        println!("Reading to string....");
         let s = std::fs::read_to_string("programs/hello.prog").unwrap();
-        println!("Program: {s}");
         // TODO: Stack overflow with heap size 16384. Look at this at some point.
         //let mut interp: Interpreter<1000, 30, 50, 20, 16384, 4096, 80> =
         let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
             Interpreter::new(s.as_str());
-        println!("Built interpreter");
         let mut io = TestIo::default();
         interp.tick(&mut io).unwrap();
-        assert_eq!(io.printed, "Hello, world!");
+        assert_eq!(io.printed, "Hello, world!\n");
+    }
+
+    #[test]
+    fn test_multiprint() {
+        let s = std::fs::read_to_string("programs/multiprint.prog").unwrap();
+        // TODO: Stack overflow with heap size 16384. Look at this at some point.
+        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
+            Interpreter::new(s.as_str());
+        let mut io = TestIo::default();
+        while !interp.completed() {
+            interp.tick(&mut io).unwrap();
+        }
+        assert_eq!(io.printed, "one\ntwo\nthree\n");
+    }
+
+    #[test]
+    fn test_one() {
+        let s = std::fs::read_to_string("programs/one.prog").unwrap();
+        // TODO: Stack overflow with heap size 16384. Look at this at some point.
+        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
+            Interpreter::new(s.as_str());
+        let mut io = TestIo::default();
+        interp.tick(&mut io).unwrap();
+        assert_eq!(io.printed, "5");
     }
 
     #[test]
