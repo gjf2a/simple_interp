@@ -1,4 +1,4 @@
-//#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -114,7 +114,6 @@ impl<
 {
     pub fn new(program: &str) -> Self {
         let tokens = Tokenized::tokenize(program).unwrap();
-        println!("Read in tokens: {tokens:?}");
         Self {
             tokens,
             token: 0,
@@ -128,10 +127,8 @@ impl<
     }
 
     pub fn tick<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<()> {
-        println!("*** tick {}/{}", self.token, self.tokens.tokens.len());
         match self.tokens.tokens[self.token] {
             Token::Print => {
-                println!("*** Print token");
                 self.token += 1;
                 match self.tokens.tokens[self.token] {
                     Token::OpenParen => {
@@ -191,14 +188,12 @@ impl<
                 }
             }
             Token::String(s) => {
-                println!("**string token {:?}", s);
                 self.token += 1;
                 let num_chars = s.iter().take_while(|c| **c != '\0').count();
                 match self.heap.malloc(num_chars, &self.stack) {
                     HeapResult::Ok(location) => {
                         let mut p = Some(location);
                         for i in 0..num_chars {
-                            println!("{i} {}", s[i]);
                             let pt = p.unwrap();
                             match self.heap.store(pt, s[i] as u64) {
                                 HeapResult::Ok(_) => {
