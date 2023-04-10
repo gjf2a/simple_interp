@@ -1,4 +1,4 @@
-//#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -6,6 +6,11 @@
 // cargo clean
 // cargo update
 // cargo build
+
+use core::ops::FnOnce;
+use core::default::Default;
+use core::option::Option;
+use core::option::Option::{None, Some};
 
 /*
 const GRAMMAR: &str = r#"
