@@ -62,10 +62,12 @@ pub struct Interpreter<
     token: usize,
     heap: CopyingHeap<u64, HEAP_SIZE, MAX_BLOCKS>,
     stack: StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS>,
+    pending_assignment: Option<Variable<MAX_LITERAL_CHARS>>,
 }
 
 pub enum TickResult<T> {
     Ok(T),
+    AwaitInput,
     Err(TickError),
 }
 
@@ -73,6 +75,7 @@ impl<T> TickResult<T> {
     pub fn unwrap(self) -> T {
         match self {
             TickResult::Ok(v) => v,
+            TickResult::AwaitInput => panic!("No result - awaiting input"),
             TickResult::Err(e) => panic!("Interpreter Error: {e:?}"),
         }
     }
@@ -81,6 +84,7 @@ impl<T> TickResult<T> {
         match self {
             TickResult::Ok(value) => TickResult::Ok(op(value)),
             TickResult::Err(e) => TickResult::Err(e),
+            TickResult::AwaitInput => TickResult::AwaitInput,
         }
     }
 }
@@ -125,11 +129,32 @@ impl<
             token: 0,
             heap: CopyingHeap::new(),
             stack: StackFrame::new(),
+            pending_assignment: None,
         }
     }
 
     pub fn completed(&self) -> bool {
         self.token >= self.tokens.num_tokens
+    }
+
+    pub fn blocked_on_input(&self) -> bool {
+        self.pending_assignment.is_some()
+    }
+
+    pub fn provide_input(&mut self, input: &[char]) {
+        let var = self.pending_assignment.unwrap();
+        let value = if is_number(input) {
+            let (t, v) = if input.contains(&'.') {
+                let float_val = make_float_from(input);
+                (ValueType::Float, float_val.to_bits())
+            } else {
+                (ValueType::Integer, make_int_from(input))
+            };
+            todo!("Abstract/copy the heap-allocation stuff in parse_expr()")
+        } else {
+            todo!("Abstract/copy the string stuff in parse_expr()")
+        };
+        self.stack.assign(var, value);
     }
 
     pub fn tick<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<()> {
@@ -139,11 +164,15 @@ impl<
                 match self.tokens.tokens[self.token] {
                     Token::OpenParen => {
                         self.token += 1;
-                        match self.parse_expr() {
+                        match self.parse_expr(io) {
                             TickResult::Ok(v) => match self.print_value(&v, io) {
                                 TickResult::Ok(_) => {}
                                 TickResult::Err(e) => return TickResult::Err(e),
+                                TickResult::AwaitInput => panic!("Input to print not implemented"),
                             },
+                            TickResult::AwaitInput => {
+                                panic!("Input to print not implemented");
+                            }
                             TickResult::Err(e) => return TickResult::Err(e),
                         }
                         match self.tokens.tokens[self.token] {
@@ -165,11 +194,15 @@ impl<
                 match self.tokens.tokens[self.token] {
                     Token::Assign => {
                         self.token += 1;
-                        match self.parse_expr() {
+                        match self.parse_expr(io) {
                             TickResult::Ok(value) => {
                                 self.stack.assign(Variable(s), value);
                             }
                             TickResult::Err(e) => return TickResult::Err(e),
+                            TickResult::AwaitInput => {
+                                self.pending_assignment = Some(Variable(s));
+                                return TickResult::AwaitInput;
+                            }
                         }
                     }
                     Token::OpenParen => {
@@ -183,13 +216,13 @@ impl<
         TickResult::Ok(())
     }
 
-    fn parse_expr(&mut self) -> TickResult<Value> {
+    fn parse_expr<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<Value> {
         match self.tokens.tokens[self.token] {
             Token::Number(n) => {
                 self.token += 1;
                 let (t, v) = if n.contains(&'.') {
                     let float_val = make_float_from(&n);
-                    (ValueType::Integer, float_val.to_bits())
+                    (ValueType::Float, float_val.to_bits())
                 } else {
                     (ValueType::Integer, make_int_from(&n))
                 };
@@ -233,6 +266,37 @@ impl<
                     None => TickResult::Err(TickError::UnassignedVariable)
                 }
             }
+            Token::Input => {
+                self.token += 1;
+                match self.tokens.tokens[self.token] {
+                    Token::OpenParen => {
+                        self.token += 1;
+                        match self.parse_expr(io) {
+                            TickResult::Ok(v) => match self.print_value(&v, io) {
+                                TickResult::Ok(_) => {}
+                                TickResult::Err(e) => return TickResult::Err(e),
+                                TickResult::AwaitInput => panic!("Input within input not implemented"),
+                            },
+                            TickResult::AwaitInput => {
+                                panic!("Input within input not implemented");
+                            }
+                            TickResult::Err(e) => return TickResult::Err(e),
+                        }
+                        match self.tokens.tokens[self.token] {
+                            Token::CloseParen => {
+                                self.token += 1;
+                                return TickResult::AwaitInput;
+                            }
+                            _ => {
+                                return TickResult::Err(TickError::ParseIssue(
+                                    ParseError::UnmatchedParen,
+                                ))
+                            }
+                        }
+                    }
+                    _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
+                }
+            }
             _ => TickResult::Err(TickError::ParseIssue(ParseError::TokensExhausted)),
         }
     }
@@ -245,6 +309,7 @@ impl<
                 TickResult::Ok(())
             }
             TickResult::Err(e) => TickResult::Err(e),
+            TickResult::AwaitInput => panic!("This should never happen."),
         }
     }
 }
@@ -501,7 +566,7 @@ macro_rules! try_terminate {
                     try_token!($result, t, $nc, $sb);
                 }
                 None => {
-                    if Self::is_number(slice) {
+                    if is_number(slice) {
                         try_token!($result, Token::Number($sb), $nc, $sb);
                     } else {
                         try_token!($result, Token::Symbol($sb), $nc, $sb);
@@ -593,12 +658,12 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize>
             _ => None,
         }
     }
+}
 
-    fn is_number(chars: &[char]) -> bool {
-        chars[0].is_numeric()
-            && chars.iter().filter(|c| **c == '.').count() <= 1
-            && chars.iter().all(|c| c.is_numeric() || *c == '.')
-    }
+fn is_number(chars: &[char]) -> bool {
+    chars[0].is_numeric()
+        && chars.iter().filter(|c| **c == '.').count() <= 1
+        && chars.iter().all(|c| c.is_numeric() || *c == '.')
 }
 
 #[cfg(test)]
@@ -727,6 +792,24 @@ mod tests {
             Interpreter::new(s.as_str());
         let mut io = TestIo::default();
         interp.tick(&mut io).unwrap();
+        interp.tick(&mut io).unwrap();
+        assert_eq!(io.printed, "5\n");
+    }
+
+    #[test]
+    fn test_add_one() {
+        let s = std::fs::read_to_string("programs/add_one.prog").unwrap();
+        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
+            Interpreter::new(s.as_str());
+        let mut io = TestIo::default();
+        match interp.tick(&mut io) {
+            TickResult::Ok(_) => panic!("Error!"),
+            TickResult::AwaitInput => {
+
+            }
+            TickResult::Err(_) => panic!("Error!"),
+        }
+
         interp.tick(&mut io).unwrap();
         assert_eq!(io.printed, "5\n");
     }

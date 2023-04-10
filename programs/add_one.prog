@@ -1,0 +1,3 @@
+x := input("Enter a number")
+x := x + 1
+print(x)
