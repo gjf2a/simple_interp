@@ -61,7 +61,7 @@ pub struct Interpreter<
     tokens: Tokenized<MAX_TOKENS, MAX_LITERAL_CHARS>,
     token: usize,
     heap: CopyingHeap<u64, HEAP_SIZE, MAX_BLOCKS>,
-    stack: ProgramStack<MAX_LITERAL_CHARS, STACK_DEPTH, MAX_LOCAL_VARS>,
+    stack: StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS>,
 }
 
 pub enum TickResult<T> {
@@ -89,6 +89,7 @@ impl<T> TickResult<T> {
 pub enum TickError {
     HeapIssue(gc_heap::HeapError),
     ParseIssue(ParseError),
+    UnassignedVariable
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -123,7 +124,7 @@ impl<
             tokens,
             token: 0,
             heap: CopyingHeap::new(),
-            stack: ProgramStack::default(),
+            stack: StackFrame::new(),
         }
     }
 
@@ -162,7 +163,15 @@ impl<
             Token::Symbol(s) => {
                 self.token += 1;
                 match self.tokens.tokens[self.token] {
-                    Token::Assign => {}
+                    Token::Assign => {
+                        self.token += 1;
+                        match self.parse_expr() {
+                            TickResult::Ok(value) => {
+                                self.stack.assign(Variable(s), value);
+                            }
+                            TickResult::Err(e) => return TickResult::Err(e),
+                        }
+                    }
                     Token::OpenParen => {
                         todo!("Function call");
                     }
@@ -217,6 +226,13 @@ impl<
                     HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
                 }
             }
+            Token::Symbol(s) => {
+                self.token += 1;
+                match self.stack.look_up(Variable(s)) {
+                    Some(value) => TickResult::Ok(value),
+                    None => TickResult::Err(TickError::UnassignedVariable)
+                }
+            }
             _ => TickResult::Err(TickError::ParseIssue(ParseError::TokensExhausted)),
         }
     }
@@ -233,9 +249,22 @@ impl<
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 struct Value {
     location: Pointer,
     t: ValueType,
+}
+
+impl Value {
+    pub fn block_num(&self) -> usize {
+        self.location.block_num()
+    }
+}
+
+impl Default for Value {
+    fn default() -> Self {
+        Self { location: Default::default(), t: ValueType::Integer }
+    }
 }
 
 impl Value {
@@ -297,7 +326,7 @@ impl Value {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum ValueType {
     Integer,
     Float,
@@ -335,45 +364,45 @@ fn make_float_from(chars: &[char]) -> f64 {
     value
 }
 
-#[derive(Copy, Clone)]
-struct ProgramStack<
-    const MAX_LITERAL_CHARS: usize,
-    const STACK_DEPTH: usize,
-    const MAX_LOCAL_VARS: usize,
-> {
-    stack: [StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS>; STACK_DEPTH],
-    stack_level: usize,
-}
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct Variable<const MAX_LITERAL_CHARS: usize>([char; MAX_LITERAL_CHARS]);
 
-impl<const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize>
-    ProgramStack<MAX_LOCAL_VARS, STACK_DEPTH, MAX_LITERAL_CHARS>
-{
-}
-
-impl<const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize> Default
-    for ProgramStack<MAX_LOCAL_VARS, STACK_DEPTH, MAX_LITERAL_CHARS>
-{
+impl<const MAX_LITERAL_CHARS: usize> Default for Variable<MAX_LITERAL_CHARS> {
     fn default() -> Self {
-        Self {
-            stack: [StackFrame::default(); STACK_DEPTH],
-            stack_level: Default::default(),
-        }
-    }
-}
-
-impl<const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize, const MAX_LOCAL_VARS: usize> Tracer
-    for ProgramStack<MAX_LOCAL_VARS, STACK_DEPTH, MAX_LITERAL_CHARS>
-{
-    fn trace(&self, blocks_used: &mut [bool]) {
-        todo!()
+        let chars = ['\0'; MAX_LITERAL_CHARS];
+        Self(chars)
     }
 }
 
 #[derive(Copy, Clone, Default)]
 pub struct StackFrame<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> {
     start_token: usize,
-    vars: BareMetalMap<Token<MAX_LITERAL_CHARS>, Pointer, MAX_LOCAL_VARS>,
+    vars: BareMetalMap<Variable<MAX_LITERAL_CHARS>, Value, MAX_LOCAL_VARS>,
 }
+
+impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> Tracer for StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS> {
+    // If I ever add structs or arrays, this will need to be modified
+    // to trace out those internal pointers as well.
+    fn trace(&self, blocks_used: &mut [bool]) {
+        for i in 0..self.vars.len() {
+            blocks_used[self.vars.get_at(i).unwrap().block_num()] = true;
+        }
+    }
+}
+
+impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS> {
+    pub fn new() -> Self {
+        Self {start_token: 0, vars: BareMetalMap::new()}
+    }
+
+    fn assign(&mut self, variable: Variable<MAX_LITERAL_CHARS>, value: Value) {
+        self.vars.put(variable, value);
+    }
+
+    fn look_up(&self, variable: Variable<MAX_LITERAL_CHARS>) -> Option<Value> {
+        self.vars.get(variable)
+    }
+} 
 
 #[derive(Debug)]
 pub enum TokenResult<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize> {
@@ -694,12 +723,12 @@ mod tests {
     #[test]
     fn test_one() {
         let s = std::fs::read_to_string("programs/one.prog").unwrap();
-        // TODO: Stack overflow with heap size 16384. Look at this at some point.
         let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
             Interpreter::new(s.as_str());
         let mut io = TestIo::default();
         interp.tick(&mut io).unwrap();
-        assert_eq!(io.printed, "5");
+        interp.tick(&mut io).unwrap();
+        assert_eq!(io.printed, "5\n");
     }
 
     #[test]
