@@ -214,6 +214,14 @@ impl<
 
     fn parse_expr<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
         match self.tokens.tokens[self.token] {
+            Token::True => {
+                self.token += 1;
+                self.malloc_boolean(true)
+            }
+            Token::False => {
+                self.token += 1;
+                self.malloc_boolean(false)
+            }
             Token::Number(n) => {
                 self.token += 1;
                 self.malloc_number(&n)
@@ -321,6 +329,11 @@ impl<
             }
             _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
         }
+    }
+
+    fn malloc_boolean(&mut self, value: bool) -> TickResult<Value> {
+        let value = if value {u64::MAX} else {0};
+        self.malloc_numeric_value(value, ValueType::Boolean)
     }
 
     fn malloc_number(&mut self, n: &[char]) -> TickResult<Value> {
