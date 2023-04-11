@@ -507,7 +507,7 @@ fn make_signed_from(value: u64) -> i64 {
 
 fn make_unsigned_from(value: i64) -> u64 {
     if value < 0 {
-        ((!value + 1) as u64) | (1 << 63)
+        ((value & i64::MAX) as u64) | (1 << 63)
     } else {
         value as u64
     }
