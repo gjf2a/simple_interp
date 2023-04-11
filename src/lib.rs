@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+//#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -11,34 +11,6 @@ use core::ops::FnOnce;
 use core::default::Default;
 use core::option::Option;
 use core::option::Option::{None, Some};
-
-/*
-const GRAMMAR: &str = r#"
-    script     := line script | line ;
-    line       := statement '\n' ;
-    statement  := assignment | while | for | if | call ;
-    assignment := symbol sp ':=' sp expr ;
-    expr       := expr sp ('+' | '-') sp mulExpr | mulExpr ;
-    mulExpr    := mulExpr sp ('*' | '/') sp factor | factor ;
-    factor     := '-' term | term ;
-    term       := num | symbol | '(' expr ')' ;
-    while      := 'while' sp condition sp block ;
-    condition  := condition sp 'or' sp andCond ;
-    andCond    := andCond sp 'and' sp notCond ;
-    notCond    := 'not' sp comparison | comparison ;
-    comparison := expr sp comp sp expr | symbol ;
-    comp       := '==' | '<=' | '>=' | '<' | '>' | '!=' ;
-    block      := '{' sp script '}' ;
-    for        := 'for' sp symbol sp 'in' sp range sp block ;
-    range      := expr '..' expr ;
-    if         := 'if' sp condition sp block sp 'else' sp block | 'if' sp condition sp block ;
-    call       := symbol '(' argList ')' | symbol '()' ;
-    argList    := expr ',' sp argList | expr ;
-    definition := 'fn' sp symbol '(' paramList ')' sp block | 'fn' sp symbol '()' sp block ;
-    paramList  := symbol ',' sp paramList | symbol ;
-"#;
-*/
-
 use core::cmp::min;
 
 use bare_metal_map::BareMetalMap;
@@ -268,11 +240,15 @@ impl<
                 }
             }
             Token::CloseCurly => {
+                println!("CloseCurly");
+                println!("{:?}", self.brace_stacker);
                 match self.brace_stacker.closing_brace() {
                     Some(while_token) => {
                         self.token = while_token;
+                        println!("Token reset");
                     }
                     None => {
+                        println!("Token continues");
                         self.token += 1;
                     }
                 }
@@ -492,6 +468,7 @@ impl<
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 struct BraceStacker<const MAX_DEPTH: usize> {
     brace_depth: usize,
     loop_back_tokens: [Option<usize>; MAX_DEPTH]
@@ -512,9 +489,8 @@ impl<const MAX_DEPTH: usize> BraceStacker<MAX_DEPTH> {
     }
 
     fn closing_brace(&mut self) -> Option<usize> {
-        let result = self.loop_back_tokens[self.brace_depth];
         self.brace_depth -= 1;
-        result
+        self.loop_back_tokens[self.brace_depth]
     }
 
     fn depth(&self) -> usize {
