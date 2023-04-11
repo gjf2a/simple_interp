@@ -428,22 +428,23 @@ impl Value {
     ) -> TickResult<usize> {
         match self.t {
             ValueType::Integer => match heap.load(self.location) {
-                HeapResult::Ok(mut w) => {
-                    if w == 0 {
+                HeapResult::Ok(w) => {
+                    let mut value = make_signed_from(w);
+                    if value == 0 {
                         buffer[0] = '0' as u8;
                         return TickResult::Ok(1);
                     }
-                    let mut start = if w >> 63 == 1 {
+                    let mut start = if value < 0 {
                         buffer[0] = '-' as u8;
-                        w &= u64::MAX >> 1;
+                        value = -value;
                         1
                     } else {
                         0
                     };
                     let mut i = start;
-                    while w > 0 && i < buffer.len() - 1 {
-                        buffer[i] = (w % 10) as u8 + '0' as u8;
-                        w /= 10;
+                    while value > 0 && i < buffer.len() - 1 {
+                        buffer[i] = (value % 10) as u8 + '0' as u8;
+                        value /= 10;
                         i += 1;
                     }
                     while start < i / 2 {
