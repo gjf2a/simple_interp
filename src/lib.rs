@@ -1,4 +1,4 @@
-//#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -152,7 +152,6 @@ impl<
             self.malloc_string(input)
         }.unwrap();
         self.stack.assign(var, value);
-        println!("{:?}", self.stack);
     }
 
     pub fn tick<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<()> {
@@ -195,10 +194,7 @@ impl<
                         match self.parse_expr(io) {
                             TickResult::Ok(value) => {
                                 let v = self.heap.load(value.location).unwrap();
-                                println!("assign: {s:?} := {v} ({value:?})");
-                                println!("before: {:?}", self.stack);
                                 self.stack.assign(Variable(s), value);
-                                println!("after: {:?}", self.stack);
                             }
                             TickResult::Err(e) => return TickResult::Err(e),
                             TickResult::AwaitInput => {
@@ -230,8 +226,6 @@ impl<
             }
             Token::Symbol(s) => {
                 self.token += 1;
-                println!("About to look up {s:?}");
-                println!("stack: {:?}", self.stack);
                 match self.stack.look_up(Variable(s)) {
                     Some(value) => TickResult::Ok(value),
                     None => TickResult::Err(TickError::UnassignedVariable)
@@ -377,7 +371,6 @@ impl<
     }
 
     fn print_value<I: InterpreterIo>(&self, v: &Value, io: &mut I) -> TickResult<()> {
-        println!("About to print: {v:?}");
         let mut output_buffer = [0; OUTPUT_WIDTH];
         match v.output(&self.heap, &mut output_buffer) {
             TickResult::Ok(num_words) => {
