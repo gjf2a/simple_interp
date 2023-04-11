@@ -44,9 +44,8 @@ use core::cmp::min;
 use bare_metal_map::BareMetalMap;
 use gc_heap::{CopyingHeap, HeapResult, Pointer, Tracer};
 
-pub trait InterpreterIo {
+pub trait InterpreterOutput {
     fn print(&mut self, chars: &[u8]);
-    fn input(&mut self, buffer: &mut [u8]);
 }
 
 pub struct Interpreter<
@@ -154,7 +153,7 @@ impl<
         self.stack.assign(var, value);
     }
 
-    pub fn tick<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<()> {
+    pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
         match self.tokens.tokens[self.token] {
             Token::Print => {
                 self.token += 1;
@@ -214,7 +213,7 @@ impl<
         TickResult::Ok(())
     }
 
-    fn parse_expr<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<Value> {
+    fn parse_expr<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
         match self.tokens.tokens[self.token] {
             Token::Number(n) => {
                 self.token += 1;
@@ -294,7 +293,7 @@ impl<
         }
     }
 
-    fn parse_input<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<Value> {
+    fn parse_input<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
         match self.tokens.tokens[self.token] {
             Token::OpenParen => {
                 self.token += 1;
@@ -370,7 +369,7 @@ impl<
         }
     }
 
-    fn print_value<I: InterpreterIo>(&self, v: &Value, io: &mut I) -> TickResult<()> {
+    fn print_value<I: InterpreterOutput>(&self, v: &Value, io: &mut I) -> TickResult<()> {
         let mut output_buffer = [0; OUTPUT_WIDTH];
         match v.output(&self.heap, &mut output_buffer) {
             TickResult::Ok(num_words) => {
@@ -756,19 +755,11 @@ mod tests {
         inputs: VecDeque<String>,
     }
 
-    impl InterpreterIo for TestIo {
+    impl InterpreterOutput for TestIo {
         fn print(&mut self, chars: &[u8]) {
             for c in chars.iter() {
                 self.printed.push(*c as char);
             }
-        }
-
-        fn input(&mut self, buffer: &mut [u8]) {
-            let msg = self.inputs.pop_front().unwrap();
-            for (i, c) in msg.char_indices().take(buffer.len()) {
-                buffer[i] = c as u8;
-            }
-            self.inputs.push_back(msg);
         }
     }
 
