@@ -20,6 +20,7 @@ pub trait InterpreterOutput {
     fn print(&mut self, chars: &[u8]);
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct Interpreter<
     const MAX_TOKENS: usize,
     const MAX_LITERAL_CHARS: usize,
@@ -729,7 +730,7 @@ impl<const MAX_LITERAL_CHARS: usize> Default for Token<MAX_LITERAL_CHARS> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct Tokenized<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize> {
     tokens: [Token<MAX_LITERAL_CHARS>; MAX_TOKENS],
     num_tokens: usize,
