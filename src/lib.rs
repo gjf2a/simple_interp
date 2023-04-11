@@ -62,10 +62,12 @@ pub struct Interpreter<
     heap: CopyingHeap<u64, HEAP_SIZE, MAX_BLOCKS>,
     stack: StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS>,
     pending_assignment: Option<Variable<MAX_LITERAL_CHARS>>,
+    brace_stacker: BraceStacker<STACK_DEPTH>,
 }
 
 pub enum TickResult<T> {
     Ok(T),
+    Finished,
     AwaitInput,
     Err(TickError),
 }
@@ -74,6 +76,7 @@ impl<T> TickResult<T> {
     pub fn unwrap(self) -> T {
         match self {
             TickResult::Ok(v) => v,
+            TickResult::Finished => panic!("No result - program already over"),
             TickResult::AwaitInput => panic!("No result - awaiting input"),
             TickResult::Err(e) => panic!("Interpreter Error: {e:?}"),
         }
@@ -84,6 +87,7 @@ impl<T> TickResult<T> {
             TickResult::Ok(value) => TickResult::Ok(op(value)),
             TickResult::Err(e) => TickResult::Err(e),
             TickResult::AwaitInput => TickResult::AwaitInput,
+            TickResult::Finished => TickResult::Finished,
         }
     }
 }
@@ -96,6 +100,8 @@ pub enum TickError {
     NestedInput,
     MissingBinaryOperator,
     IllegalBinaryOperator,
+    NeedsBoolean,
+    MissingOpeningBrace,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -132,6 +138,7 @@ impl<
             heap: CopyingHeap::new(),
             stack: StackFrame::new(),
             pending_assignment: None,
+            brace_stacker: BraceStacker::new(),
         }
     }
 
@@ -154,6 +161,9 @@ impl<
     }
 
     pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
+        if self.token == self.tokens.tokens.len() {
+            return TickResult::Finished;
+        }
         match self.tokens.tokens[self.token] {
             Token::Print => {
                 self.token += 1;
@@ -165,11 +175,13 @@ impl<
                                 TickResult::Ok(_) => {}
                                 TickResult::Err(e) => return TickResult::Err(e),
                                 TickResult::AwaitInput => panic!("Input to print not implemented"),
+                                TickResult::Finished => panic!("Program ended too soon."),
                             },
                             TickResult::AwaitInput => {
                                 panic!("Input to print not implemented");
                             }
                             TickResult::Err(e) => return TickResult::Err(e),
+                            TickResult::Finished => panic!("Program ended too soon."),
                         }
                         match self.tokens.tokens[self.token] {
                             Token::CloseParen => {
@@ -199,12 +211,70 @@ impl<
                                 self.pending_assignment = Some(Variable(s));
                                 return TickResult::AwaitInput;
                             }
+                            TickResult::Finished => panic!("Program ended too soon."),
                         }
                     }
                     Token::OpenParen => {
                         todo!("Function call");
                     }
                     _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
+                }
+            }
+            Token::While => {
+                let while_start = self.token;
+                self.token += 1;
+                match self.parse_expr(io) {
+                    TickResult::Finished => panic!("Program ended too soon."),
+                    TickResult::AwaitInput => return TickResult::Err(TickError::NestedInput),
+                    TickResult::Err(e) => return TickResult::Err(e),
+                    TickResult::Ok(value) => {
+                        match value.t {
+                            ValueType::Boolean => {
+                                if self.load_boolean(value.location) {
+                                    match self.tokens.tokens[self.token] {
+                                        Token::OpenCurly => {
+                                            self.token += 1;
+                                            self.brace_stacker.while_loop(while_start);
+                                            return TickResult::Ok(());
+                                        }
+                                        _ => return TickResult::Err(TickError::MissingOpeningBrace)
+                                    }
+                                } else {
+                                    let goal_depth = self.brace_stacker.depth();
+                                    match self.tokens.tokens[self.token] {
+                                        Token::OpenCurly => {
+                                            self.token += 1;
+                                            self.brace_stacker.while_loop(self.token);
+                                            while self.brace_stacker.depth() > goal_depth {
+                                                match self.tokens.tokens[self.token] {
+                                                    Token::OpenCurly => {
+                                                        self.brace_stacker.opening_brace();
+                                                    }
+                                                    Token::CloseCurly => {
+                                                        self.brace_stacker.closing_brace();
+                                                    }
+                                                    _ => {}
+                                                }
+                                                self.token += 1;
+                                            }
+                                        }
+                                        _ => return TickResult::Err(TickError::MissingOpeningBrace)
+                                    }
+                                }
+                            }
+                            _ => return TickResult::Err(TickError::NeedsBoolean),
+                        }
+                    }
+                }
+            }
+            Token::CloseCurly => {
+                match self.brace_stacker.closing_brace() {
+                    Some(while_token) => {
+                        self.token = while_token;
+                    }
+                    None => {
+                        self.token += 1;
+                    }
                 }
             }
             _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
@@ -251,10 +321,11 @@ impl<
 
     fn parse_operation<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
         match self.parse_expr(io) {
+            TickResult::Finished => panic!("Program ended too soon."),
             TickResult::Ok(value1) => {
                 let op = self.tokens.tokens[self.token];
                 match self.tokens.tokens[self.token] {
-                    Token::And | Token::Or | Token::Plus | Token::Minus | Token::Times | Token::Divide | Token::Equal | Token::NotEqual | Token::LessEqual | Token::LessThan | Token::GreaterThan | Token::GreaterEqual => {
+                    Token::And | Token::Or | Token::Plus | Token::Minus | Token::Times | Token::Divide | Token::Equal | Token::LessThan | Token::GreaterThan => {
                         self.token += 1;
                         match self.parse_expr(io) {
                             TickResult::Ok(value2) => {
@@ -267,7 +338,8 @@ impl<
                                 }
                             }
                             TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
-                            TickResult::Err(e) => TickResult::Err(e)
+                            TickResult::Err(e) => TickResult::Err(e),
+                            TickResult::Finished => panic!("Program ended too soon."),
                         }
                     }
                     _ => TickResult::Err(TickError::MissingBinaryOperator)
@@ -287,8 +359,19 @@ impl<
                         let v2 = self.load_int(value2.location);
                         match op {
                             Token::Plus => {
-                                let total = v1 + v2;
-                                self.malloc_numeric_value(make_unsigned_from(total), ValueType::Integer)
+                                self.malloc_numeric_value(make_unsigned_from(v1 + v2), ValueType::Integer)
+                            }
+                            Token::Minus => {
+                                self.malloc_numeric_value(make_unsigned_from(v1 - v2), ValueType::Integer)
+                            }
+                            Token::LessThan => {
+                                self.malloc_boolean(v1 < v2)
+                            }
+                            Token::GreaterThan => {
+                                self.malloc_boolean(v1 > v2)
+                            }
+                            Token::Equal => {
+                                self.malloc_boolean(v1 == v2)
                             }
                             _ => TickResult::Err(TickError::IllegalBinaryOperator)
                         }
@@ -308,6 +391,10 @@ impl<
         make_signed_from(self.heap.load(p).unwrap())
     }
 
+    fn load_boolean(&self, p: Pointer) -> bool {
+        self.heap.load(p).unwrap() != 0
+    }
+
     fn parse_input<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
         match self.tokens.tokens[self.token] {
             Token::OpenParen => {
@@ -317,11 +404,13 @@ impl<
                         TickResult::Ok(_) => {}
                         TickResult::Err(e) => return TickResult::Err(e),
                         TickResult::AwaitInput => panic!("Input within input not implemented"),
+                        TickResult::Finished => panic!("Program ended too soon."),
                     },
                     TickResult::AwaitInput => {
                         panic!("Input within input not implemented");
                     }
                     TickResult::Err(e) => return TickResult::Err(e),
+                    TickResult::Finished => panic!("Program ended too soon."),
                 }
                 match self.tokens.tokens[self.token] {
                     Token::CloseParen => {
@@ -398,7 +487,38 @@ impl<
             }
             TickResult::Err(e) => TickResult::Err(e),
             TickResult::AwaitInput => panic!("This should never happen."),
+            TickResult::Finished => panic!("Program ended too soon."),
         }
+    }
+}
+
+struct BraceStacker<const MAX_DEPTH: usize> {
+    brace_depth: usize,
+    loop_back_tokens: [Option<usize>; MAX_DEPTH]
+}
+
+impl<const MAX_DEPTH: usize> BraceStacker<MAX_DEPTH> {
+    fn new() -> Self {
+        Self {brace_depth: 0, loop_back_tokens: [None; MAX_DEPTH]}
+    }
+
+    fn while_loop(&mut self, condition_token: usize) {
+        self.loop_back_tokens[self.brace_depth] = Some(condition_token);
+        self.brace_depth += 1;
+    }
+
+    fn opening_brace(&mut self) {
+        self.brace_depth += 1;
+    }
+
+    fn closing_brace(&mut self) -> Option<usize> {
+        let result = self.loop_back_tokens[self.brace_depth];
+        self.brace_depth -= 1;
+        result
+    }
+
+    fn depth(&self) -> usize {
+        self.brace_depth
     }
 }
 
@@ -625,10 +745,7 @@ pub enum Token<const MAX_LITERAL_CHARS: usize> {
     Or,
     Not,
     LessThan,
-    LessEqual,
     GreaterThan,
-    GreaterEqual,
-    NotEqual,
     Print,
     Input,
 }
@@ -748,6 +865,8 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize>
             '}' => Some(Token::CloseCurly),
             '[' => Some(Token::OpenSquare),
             ']' => Some(Token::CloseSquare),
+            '<' => Some(Token::LessThan),
+            '>' => Some(Token::GreaterThan),
             _ => None,
         }
     }
@@ -909,11 +1028,32 @@ mod tests {
                 interp.provide_input(&['4']);
             }
             TickResult::Err(_) => panic!("Error!"),
+            TickResult::Finished => panic!("Program ended too soon."),
         }
 
         interp.tick(&mut io).unwrap();
         interp.tick(&mut io).unwrap();
         assert_eq!(io.printed, "Enter a number\n5\n");
+    }
+
+    #[test]
+    fn test_countdown() {
+        let s = std::fs::read_to_string("programs/countdown.prog").unwrap();
+        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
+            Interpreter::new(s.as_str());
+        let mut io = TestIo::default();
+        match interp.tick(&mut io) {
+            TickResult::Ok(_) => panic!("Error!"),
+            TickResult::AwaitInput => {
+                interp.provide_input(&['3']);
+            }
+            TickResult::Err(_) => panic!("Error!"),
+            TickResult::Finished => panic!("Program ended too soon."),
+        }
+        while !interp.completed() {
+            interp.tick(&mut io).unwrap();
+        }        
+        assert_eq!(io.printed, "count\ndone\n0\n");
     }
 
     #[test]

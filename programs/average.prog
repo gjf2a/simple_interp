@@ -1,10 +1,10 @@
 sum := 0
 count := 0
-done := false
-while (not done) {
+averaging := true
+while averaging {
     num := input("Enter a number:")
     if num == "quit" {
-        done := true
+        averaging := false
     } else {
         sum := (sum + num)
         count := (count + 1)
