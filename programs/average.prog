@@ -1,7 +1,7 @@
 sum := 0
 count := 0
 done := false
-while not done {
+while (not done) {
     num := input("Enter a number:")
     if num == "quit" {
         done := true

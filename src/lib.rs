@@ -243,48 +243,52 @@ impl<
             }
             Token::OpenParen => {
                 self.token += 1;
-                match self.parse_expr(io) {
-                    TickResult::Ok(value1) => {
-                        let op = self.tokens.tokens[self.token];
-                        match self.tokens.tokens[self.token] {
-                            Token::And | Token::Or | Token::Plus | Token::Minus | Token::Times | Token::Divide | Token::Equal | Token::NotEqual | Token::LessEqual | Token::LessThan | Token::GreaterThan | Token::GreaterEqual => {
-                                self.token += 1;
-                                match self.parse_expr(io) {
-                                    TickResult::Ok(value2) => {
-                                        match self.tokens.tokens[self.token] {
-                                            Token::CloseParen => {
-                                                self.token += 1;
-                                                self.do_arithmetic(value1, value2, op)
-                                            }
-                                            _ => TickResult::Err(TickError::ParseIssue(ParseError::UnmatchedParen))
-                                        }
-                                    }
-                                    TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
-                                    TickResult::Err(e) => TickResult::Err(e)
-                                }
-                            }
-                            _ => TickResult::Err(TickError::MissingBinaryOperator)
-                        }
-                    }
-                    TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
-                    TickResult::Err(e) => TickResult::Err(e)
-                }
+                self.parse_operation(io)
             }
             _ => TickResult::Err(TickError::ParseIssue(ParseError::TokensExhausted)),
+        }
+    }
+
+    fn parse_operation<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
+        match self.parse_expr(io) {
+            TickResult::Ok(value1) => {
+                let op = self.tokens.tokens[self.token];
+                match self.tokens.tokens[self.token] {
+                    Token::And | Token::Or | Token::Plus | Token::Minus | Token::Times | Token::Divide | Token::Equal | Token::NotEqual | Token::LessEqual | Token::LessThan | Token::GreaterThan | Token::GreaterEqual => {
+                        self.token += 1;
+                        match self.parse_expr(io) {
+                            TickResult::Ok(value2) => {
+                                match self.tokens.tokens[self.token] {
+                                    Token::CloseParen => {
+                                        self.token += 1;
+                                        self.do_arithmetic(value1, value2, op)
+                                    }
+                                    _ => TickResult::Err(TickError::ParseIssue(ParseError::UnmatchedParen))
+                                }
+                            }
+                            TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
+                            TickResult::Err(e) => TickResult::Err(e)
+                        }
+                    }
+                    _ => TickResult::Err(TickError::MissingBinaryOperator)
+                }
+            }
+            TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
+            TickResult::Err(e) => TickResult::Err(e)
         }
     }
 
     fn do_arithmetic(&mut self, value1: Value, value2: Value, op: Token<MAX_LITERAL_CHARS>) -> TickResult<Value> {
         match value1.t {
             ValueType::Integer => {
-                let v1 = self.heap.load(value1.location).unwrap();
+                let v1 = self.load_int(value1.location);
                 match value2.t {
                     ValueType::Integer => {
-                        let v2 = self.heap.load(value2.location).unwrap();
+                        let v2 = self.load_int(value2.location);
                         match op {
                             Token::Plus => {
                                 let total = v1 + v2;
-                                self.malloc_numeric_value(total, ValueType::Integer)
+                                self.malloc_numeric_value(make_unsigned_from(total), ValueType::Integer)
                             }
                             _ => TickResult::Err(TickError::IllegalBinaryOperator)
                         }
@@ -298,6 +302,10 @@ impl<
             ValueType::String => todo!(),
             ValueType::Boolean => todo!(),
         }
+    }
+
+    fn load_int(&self, p: Pointer) -> i64 {
+        make_signed_from(self.heap.load(p).unwrap())
     }
 
     fn parse_input<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
@@ -487,6 +495,22 @@ fn make_int_from(chars: &[char]) -> u64 {
         value += *c as u64 - '0' as u64;
     }
     value
+}
+
+fn make_signed_from(value: u64) -> i64 {
+    if value >> 63 == 1 {
+        -((!value + 1) as i64)
+    } else {
+        value as i64
+    }
+}
+
+fn make_unsigned_from(value: i64) -> u64 {
+    if value < 0 {
+        ((!value + 1) as u64) | (1 << 63)
+    } else {
+        value as u64
+    }
 }
 
 fn make_float_from(chars: &[char]) -> f64 {
@@ -909,6 +933,22 @@ mod tests {
         ] {
             let expected = s.iter().collect::<String>().parse::<f64>().unwrap();
             assert_eq!(expected, make_float_from(&s));
+        }
+    }
+
+    #[test]
+    fn test_signed() {
+        for (bits, value) in [
+            (u64::MAX, -1),
+            (1, 1),
+            (0, 0),
+            (u64::MAX - 1, -2),
+            (u64::MAX - 100, -101)
+        ] {
+            println!("{value}");
+            let signed = make_signed_from(bits);
+            assert_eq!(value, signed);
+            assert_eq!(bits, make_unsigned_from(signed));
         }
     }
 }

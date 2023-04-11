@@ -2,10 +2,10 @@ sum := 0
 i := 0
 neg := false
 terms := input("Num terms:")
-while i < terms {
+while (i < terms) {
     term := (1 / ((2 * i) + 1))
     if neg {
-        term := -term
+        term := (-term)
     }
     sum := (sum + term)
     neg := (not neg)
