@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+//#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -93,7 +93,10 @@ impl<T> TickResult<T> {
 pub enum TickError {
     HeapIssue(gc_heap::HeapError),
     ParseIssue(ParseError),
-    UnassignedVariable
+    UnassignedVariable,
+    NestedInput,
+    MissingBinaryOperator,
+    IllegalBinaryOperator,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -144,17 +147,12 @@ impl<
     pub fn provide_input(&mut self, input: &[char]) {
         let var = self.pending_assignment.unwrap();
         let value = if is_number(input) {
-            let (t, v) = if input.contains(&'.') {
-                let float_val = make_float_from(input);
-                (ValueType::Float, float_val.to_bits())
-            } else {
-                (ValueType::Integer, make_int_from(input))
-            };
-            todo!("Abstract/copy the heap-allocation stuff in parse_expr()")
+            self.malloc_number(input)
         } else {
-            todo!("Abstract/copy the string stuff in parse_expr()")
-        };
+            self.malloc_string(input)
+        }.unwrap();
         self.stack.assign(var, value);
+        println!("{:?}", self.stack);
     }
 
     pub fn tick<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<()> {
@@ -196,7 +194,11 @@ impl<
                         self.token += 1;
                         match self.parse_expr(io) {
                             TickResult::Ok(value) => {
+                                let v = self.heap.load(value.location).unwrap();
+                                println!("assign: {s:?} := {v} ({value:?})");
+                                println!("before: {:?}", self.stack);
                                 self.stack.assign(Variable(s), value);
+                                println!("after: {:?}", self.stack);
                             }
                             TickResult::Err(e) => return TickResult::Err(e),
                             TickResult::AwaitInput => {
@@ -220,44 +222,11 @@ impl<
         match self.tokens.tokens[self.token] {
             Token::Number(n) => {
                 self.token += 1;
-                let (t, v) = if n.contains(&'.') {
-                    let float_val = make_float_from(&n);
-                    (ValueType::Float, float_val.to_bits())
-                } else {
-                    (ValueType::Integer, make_int_from(&n))
-                };
-                match self.heap.malloc(1, &self.stack) {
-                    HeapResult::Ok(p) => match self.heap.store(p, v) {
-                        HeapResult::Ok(_) => TickResult::Ok(Value { location: p, t }),
-                        HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
-                    },
-                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
-                }
+                self.malloc_number(&n)
             }
             Token::String(s) => {
                 self.token += 1;
-                let num_chars = s.iter().take_while(|c| **c != '\0').count();
-                match self.heap.malloc(num_chars, &self.stack) {
-                    HeapResult::Ok(location) => {
-                        let mut p = Some(location);
-                        for i in 0..num_chars {
-                            let pt = p.unwrap();
-                            match self.heap.store(pt, s[i] as u64) {
-                                HeapResult::Ok(_) => {
-                                    p = pt.next();
-                                }
-                                HeapResult::Err(e) => {
-                                    return TickResult::Err(TickError::HeapIssue(e))
-                                }
-                            }
-                        }
-                        TickResult::Ok(Value {
-                            location,
-                            t: ValueType::String,
-                        })
-                    }
-                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
-                }
+                self.malloc_string(&s)
             }
             Token::Symbol(s) => {
                 self.token += 1;
@@ -268,40 +237,145 @@ impl<
             }
             Token::Input => {
                 self.token += 1;
-                match self.tokens.tokens[self.token] {
-                    Token::OpenParen => {
-                        self.token += 1;
-                        match self.parse_expr(io) {
-                            TickResult::Ok(v) => match self.print_value(&v, io) {
-                                TickResult::Ok(_) => {}
-                                TickResult::Err(e) => return TickResult::Err(e),
-                                TickResult::AwaitInput => panic!("Input within input not implemented"),
-                            },
-                            TickResult::AwaitInput => {
-                                panic!("Input within input not implemented");
-                            }
-                            TickResult::Err(e) => return TickResult::Err(e),
-                        }
+                self.parse_input(io)
+            }
+            Token::OpenParen => {
+                self.token += 1;
+                match self.parse_expr(io) {
+                    TickResult::Ok(value1) => {
+                        let op = self.tokens.tokens[self.token];
                         match self.tokens.tokens[self.token] {
-                            Token::CloseParen => {
+                            Token::And | Token::Or | Token::Plus | Token::Minus | Token::Times | Token::Divide | Token::Equal | Token::NotEqual | Token::LessEqual | Token::LessThan | Token::GreaterThan | Token::GreaterEqual => {
                                 self.token += 1;
-                                return TickResult::AwaitInput;
+                                match self.parse_expr(io) {
+                                    TickResult::Ok(value2) => {
+                                        match self.tokens.tokens[self.token] {
+                                            Token::CloseParen => {
+                                                self.token += 1;
+                                                self.do_arithmetic(value1, value2, op)
+                                            }
+                                            _ => TickResult::Err(TickError::ParseIssue(ParseError::UnmatchedParen))
+                                        }
+                                    }
+                                    TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
+                                    TickResult::Err(e) => TickResult::Err(e)
+                                }
                             }
-                            _ => {
-                                return TickResult::Err(TickError::ParseIssue(
-                                    ParseError::UnmatchedParen,
-                                ))
-                            }
+                            _ => TickResult::Err(TickError::MissingBinaryOperator)
                         }
                     }
-                    _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
+                    TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
+                    TickResult::Err(e) => TickResult::Err(e)
                 }
             }
             _ => TickResult::Err(TickError::ParseIssue(ParseError::TokensExhausted)),
         }
     }
 
+    fn do_arithmetic(&mut self, value1: Value, value2: Value, op: Token<MAX_LITERAL_CHARS>) -> TickResult<Value> {
+        match value1.t {
+            ValueType::Integer => {
+                let v1 = self.heap.load(value1.location).unwrap();
+                match value2.t {
+                    ValueType::Integer => {
+                        let v2 = self.heap.load(value2.location).unwrap();
+                        match op {
+                            Token::Plus => {
+                                let total = v1 + v2;
+                                self.malloc_numeric_value(total, ValueType::Integer)
+                            }
+                            _ => TickResult::Err(TickError::IllegalBinaryOperator)
+                        }
+                    }
+                    ValueType::Float => todo!(),
+                    ValueType::String => todo!(),
+                    ValueType::Boolean => todo!(),
+                }
+            }
+            ValueType::Float => todo!(),
+            ValueType::String => todo!(),
+            ValueType::Boolean => todo!(),
+        }
+    }
+
+    fn parse_input<I: InterpreterIo>(&mut self, io: &mut I) -> TickResult<Value> {
+        match self.tokens.tokens[self.token] {
+            Token::OpenParen => {
+                self.token += 1;
+                match self.parse_expr(io) {
+                    TickResult::Ok(v) => match self.print_value(&v, io) {
+                        TickResult::Ok(_) => {}
+                        TickResult::Err(e) => return TickResult::Err(e),
+                        TickResult::AwaitInput => panic!("Input within input not implemented"),
+                    },
+                    TickResult::AwaitInput => {
+                        panic!("Input within input not implemented");
+                    }
+                    TickResult::Err(e) => return TickResult::Err(e),
+                }
+                match self.tokens.tokens[self.token] {
+                    Token::CloseParen => {
+                        self.token += 1;
+                        return TickResult::AwaitInput;
+                    }
+                    _ => {
+                        return TickResult::Err(TickError::ParseIssue(
+                            ParseError::UnmatchedParen,
+                        ))
+                    }
+                }
+            }
+            _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
+        }
+    }
+
+    fn malloc_number(&mut self, n: &[char]) -> TickResult<Value> {
+        let (t, value) = if n.contains(&'.') {
+            let float_val = make_float_from(n);
+            (ValueType::Float, float_val.to_bits())
+        } else {
+            (ValueType::Integer, make_int_from(n))
+        };
+        self.malloc_numeric_value(value, t)
+    }
+
+    fn malloc_numeric_value(&mut self, value: u64, t: ValueType) -> TickResult<Value> {
+        match self.heap.malloc(1, &self.stack) {
+            HeapResult::Ok(p) => match self.heap.store(p, value) {
+                HeapResult::Ok(_) => TickResult::Ok(Value { location: p, t }),
+                HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+            },
+            HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+        }
+    }
+
+    fn malloc_string(&mut self, s: &[char]) -> TickResult<Value> {
+        let num_chars = s.iter().take_while(|c| **c != '\0').count();
+        match self.heap.malloc(num_chars, &self.stack) {
+            HeapResult::Ok(location) => {
+                let mut p = Some(location);
+                for i in 0..num_chars {
+                    let pt = p.unwrap();
+                    match self.heap.store(pt, s[i] as u64) {
+                        HeapResult::Ok(_) => {
+                            p = pt.next();
+                        }
+                        HeapResult::Err(e) => {
+                            return TickResult::Err(TickError::HeapIssue(e))
+                        }
+                    }
+                }
+                TickResult::Ok(Value {
+                    location,
+                    t: ValueType::String,
+                })
+            }
+            HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+        }
+    }
+
     fn print_value<I: InterpreterIo>(&self, v: &Value, io: &mut I) -> TickResult<()> {
+        println!("About to print: {v:?}");
         let mut output_buffer = [0; OUTPUT_WIDTH];
         match v.output(&self.heap, &mut output_buffer) {
             TickResult::Ok(num_words) => {
@@ -370,7 +444,6 @@ impl Value {
                 }
                 HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
             },
-            ValueType::Float => todo!(),
             ValueType::String => {
                 let mut p = Some(self.location);
                 let end = min(self.location.len(), buffer.len() - 1);
@@ -387,6 +460,8 @@ impl Value {
                 buffer[end] = '\n' as u8;
                 TickResult::Ok(end + 1)
             }
+            ValueType::Float => todo!(),
+            ValueType::Boolean => todo!(),
         }
     }
 }
@@ -396,6 +471,7 @@ enum ValueType {
     Integer,
     Float,
     String,
+    Boolean
 }
 
 fn make_int_from(chars: &[char]) -> u64 {
@@ -439,7 +515,7 @@ impl<const MAX_LITERAL_CHARS: usize> Default for Variable<MAX_LITERAL_CHARS> {
     }
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct StackFrame<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> {
     start_token: usize,
     vars: BareMetalMap<Variable<MAX_LITERAL_CHARS>, Value, MAX_LOCAL_VARS>,
@@ -518,6 +594,11 @@ pub enum Token<const MAX_LITERAL_CHARS: usize> {
     And,
     Or,
     Not,
+    LessThan,
+    LessEqual,
+    GreaterThan,
+    GreaterEqual,
+    NotEqual,
     Print,
     Input,
 }
@@ -805,13 +886,14 @@ mod tests {
         match interp.tick(&mut io) {
             TickResult::Ok(_) => panic!("Error!"),
             TickResult::AwaitInput => {
-
+                interp.provide_input(&['4']);
             }
             TickResult::Err(_) => panic!("Error!"),
         }
 
         interp.tick(&mut io).unwrap();
-        assert_eq!(io.printed, "5\n");
+        interp.tick(&mut io).unwrap();
+        assert_eq!(io.printed, "Enter a number\n5\n");
     }
 
     #[test]

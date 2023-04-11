@@ -5,7 +5,7 @@ version = 3
 [[package]]
 name = "bare_metal_map"
 version = "0.1.0"
-source = "git+https://github.com/gjf2a/bare_metal_map#c8832ef865ba1f59b90817fdea357beab8c5758c"
+source = "git+https://github.com/gjf2a/bare_metal_map#fcd8c20d5af66db58f3a8f60886ec2d9ce767401"
 
 [[package]]
 name = "bare_metal_queue"
