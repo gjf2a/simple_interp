@@ -1,4 +1,4 @@
-//#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -240,15 +240,11 @@ impl<
                 }
             }
             Token::CloseCurly => {
-                println!("CloseCurly");
-                println!("{:?}", self.brace_stacker);
                 match self.brace_stacker.closing_brace() {
                     Some(while_token) => {
                         self.token = while_token;
-                        println!("Token reset");
                     }
                     None => {
-                        println!("Token continues");
                         self.token += 1;
                     }
                 }
@@ -528,7 +524,8 @@ impl Value {
                     let mut value = make_signed_from(w);
                     if value == 0 {
                         buffer[0] = '0' as u8;
-                        return TickResult::Ok(1);
+                        buffer[1] = '\n' as u8;
+                        return TickResult::Ok(2);
                     }
                     let mut start = if value < 0 {
                         buffer[0] = '-' as u8;
