@@ -230,6 +230,8 @@ impl<
             }
             Token::Symbol(s) => {
                 self.token += 1;
+                println!("About to look up {s:?}");
+                println!("stack: {:?}", self.stack);
                 match self.stack.look_up(Variable(s)) {
                     Some(value) => TickResult::Ok(value),
                     None => TickResult::Err(TickError::UnassignedVariable)
