@@ -192,7 +192,6 @@ impl<
                         self.token += 1;
                         match self.parse_expr(io) {
                             TickResult::Ok(value) => {
-                                let v = self.heap.load(value.location).unwrap();
                                 self.stack.assign(Variable(s), value);
                             }
                             TickResult::Err(e) => return TickResult::Err(e),
@@ -511,7 +510,6 @@ impl<const MAX_LITERAL_CHARS: usize> Default for Variable<MAX_LITERAL_CHARS> {
 
 #[derive(Copy, Clone, Default, Debug)]
 pub struct StackFrame<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> {
-    start_token: usize,
     vars: BareMetalMap<Variable<MAX_LITERAL_CHARS>, Value, MAX_LOCAL_VARS>,
 }
 
@@ -527,7 +525,7 @@ impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> Tracer for Sta
 
 impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS> {
     pub fn new() -> Self {
-        Self {start_token: 0, vars: BareMetalMap::new()}
+        Self {vars: BareMetalMap::new()}
     }
 
     fn assign(&mut self, variable: Variable<MAX_LITERAL_CHARS>, value: Value) {
@@ -744,7 +742,6 @@ fn is_number(chars: &[char]) -> bool {
 #[cfg(test)]
 mod tests {
     use core::fmt::Display;
-    use std::collections::VecDeque;
     use std::fs::read_to_string;
 
     use super::*;
@@ -752,7 +749,6 @@ mod tests {
     #[derive(Clone, Debug, Default)]
     struct TestIo {
         printed: String,
-        inputs: VecDeque<String>,
     }
 
     impl InterpreterOutput for TestIo {
