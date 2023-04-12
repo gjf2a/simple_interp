@@ -244,7 +244,10 @@ impl<
                     }
                 }
             }
-            _ => return TickResult::Err(TickError::UnimplementedOpeartion),
+            _ => {
+                panic!("{:?}", self.tokens);
+                //return TickResult::Err(TickError::UnimplementedOpeartion);
+            }
         }
         TickResult::Ok(())
     }
