@@ -27,7 +27,7 @@ pub struct Interpreter<
     const STACK_DEPTH: usize,
     const MAX_LOCAL_VARS: usize,
     const OUTPUT_WIDTH: usize,
-    G: GarbageCollectingHeap,
+    G: GarbageCollectingHeap + Copy,
 > {
     tokens: Tokenized<MAX_TOKENS, MAX_LITERAL_CHARS>,
     token: usize,
@@ -87,7 +87,7 @@ impl<
         const STACK_DEPTH: usize,
         const MAX_LOCAL_VARS: usize,
         const OUTPUT_WIDTH: usize,
-        G: GarbageCollectingHeap,
+        G: GarbageCollectingHeap + Copy,
     >
     Interpreter<
         MAX_TOKENS,
@@ -509,7 +509,7 @@ impl Default for Value {
 }
 
 impl Value {
-    fn output<G: GarbageCollectingHeap>(
+    fn output<G: GarbageCollectingHeap + Copy>(
         &self,
         heap: &G,
         buffer: &mut [u8],
