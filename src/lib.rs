@@ -113,6 +113,10 @@ impl<
         }
     }
 
+    fn token_panic(&self) {
+        panic!("{} {:?}", self.token, &self.tokens.tokens[0..self.tokens.num_tokens]);
+    }
+
     pub fn completed(&self) -> bool {
         self.token >= self.tokens.num_tokens
     }
@@ -182,6 +186,7 @@ impl<
                         }
                     }
                     Token::OpenParen => {
+                        self.token_panic();
                         todo!("Function call");
                     }
                     _ => return TickResult::Err(TickError::UnprocessableSymbol),
@@ -245,7 +250,7 @@ impl<
                 }
             }
             _ => {
-                panic!("{} {:?}", self.token, &self.tokens.tokens[0..self.tokens.num_tokens]);
+                self.token_panic();
                 //return TickResult::Err(TickError::UnimplementedOpeartion);
             }
         }
