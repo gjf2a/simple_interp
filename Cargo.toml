@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 bare_metal_map = {git = "https://github.com/gjf2a/bare_metal_map"}
+gc_headers = {git = "https://github.com/gjf2a/gc_headers"}
 gc_heap = {git = "https://github.com/gjf2a/gc_heap"}

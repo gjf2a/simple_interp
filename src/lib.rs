@@ -14,7 +14,7 @@ use core::option::Option::{None, Some};
 use core::cmp::min;
 
 use bare_metal_map::BareMetalMap;
-use gc_heap::{CopyingHeap, HeapResult, Pointer, Tracer};
+use gc_headers::{GarbageCollectingHeap, HeapResult, HeapError, Pointer, Tracer};
 
 pub trait InterpreterOutput {
     fn print(&mut self, chars: &[u8]);
@@ -26,13 +26,12 @@ pub struct Interpreter<
     const MAX_LITERAL_CHARS: usize,
     const STACK_DEPTH: usize,
     const MAX_LOCAL_VARS: usize,
-    const HEAP_SIZE: usize,
-    const MAX_BLOCKS: usize,
     const OUTPUT_WIDTH: usize,
+    G: GarbageCollectingHeap,
 > {
     tokens: Tokenized<MAX_TOKENS, MAX_LITERAL_CHARS>,
     token: usize,
-    heap: CopyingHeap<u64, HEAP_SIZE, MAX_BLOCKS>,
+    heap: G,
     stack: StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS>,
     pending_assignment: Option<Variable<MAX_LITERAL_CHARS>>,
     brace_stacker: BraceStacker<STACK_DEPTH>,
@@ -67,7 +66,7 @@ impl<T> TickResult<T> {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TickError {
-    HeapIssue(gc_heap::HeapError),
+    HeapIssue(HeapError),
     UnmatchedParen,
     SyntaxError,
     TokensExhausted,
@@ -87,18 +86,16 @@ impl<
         const MAX_LITERAL_CHARS: usize,
         const STACK_DEPTH: usize,
         const MAX_LOCAL_VARS: usize,
-        const HEAP_SIZE: usize,
-        const MAX_BLOCKS: usize,
         const OUTPUT_WIDTH: usize,
+        G: GarbageCollectingHeap,
     >
     Interpreter<
         MAX_TOKENS,
         MAX_LITERAL_CHARS,
         STACK_DEPTH,
         MAX_LOCAL_VARS,
-        HEAP_SIZE,
-        MAX_BLOCKS,
         OUTPUT_WIDTH,
+        G,
     >
 {
     pub fn new(program: &str) -> Self {
@@ -106,7 +103,7 @@ impl<
         Self {
             tokens,
             token: 0,
-            heap: CopyingHeap::new(),
+            heap: G::new(),
             stack: StackFrame::new(),
             pending_assignment: None,
             brace_stacker: BraceStacker::new(),
@@ -451,7 +448,7 @@ impl<
 
     fn print_value<I: InterpreterOutput>(&self, v: &Value, io: &mut I) -> TickResult<()> {
         let mut output_buffer = [0; OUTPUT_WIDTH];
-        match v.output(&self.heap, &mut output_buffer) {
+        match v.output::<G>(&self.heap, &mut output_buffer) {
             TickResult::Ok(num_words) => {
                 io.print(&output_buffer[0..num_words]);
                 TickResult::Ok(())
@@ -512,9 +509,9 @@ impl Default for Value {
 }
 
 impl Value {
-    fn output<const HEAP_SIZE: usize, const MAX_BLOCKS: usize>(
+    fn output<G: GarbageCollectingHeap>(
         &self,
-        heap: &CopyingHeap<u64, HEAP_SIZE, MAX_BLOCKS>,
+        heap: &G,
         buffer: &mut [u8],
     ) -> TickResult<usize> {
         match self.t {
@@ -873,6 +870,7 @@ fn is_number(chars: &[char]) -> bool {
 mod tests {
     use core::fmt::Display;
     use std::fs::read_to_string;
+    use gc_heap::CopyingHeap;
 
     use super::*;
 
@@ -883,7 +881,7 @@ mod tests {
     const HEAP_SIZE: usize = 1024;
     const MAX_HEAP_BLOCKS: usize = HEAP_SIZE;
 
-    fn interp(s: &str) -> Interpreter<MAX_TOKENS, MAX_LITERAL_CHARS, STACK_DEPTH, MAX_LOCAL_VARS, HEAP_SIZE, MAX_HEAP_BLOCKS, 33> {
+    fn interp(s: &str) -> Interpreter<MAX_TOKENS, MAX_LITERAL_CHARS, STACK_DEPTH, MAX_LOCAL_VARS, 33, CopyingHeap<HEAP_SIZE, MAX_HEAP_BLOCKS>> {
         Interpreter::new(s)
     }
 
@@ -967,8 +965,7 @@ mod tests {
     #[test]
     fn test_multiprint() {
         let s = std::fs::read_to_string("programs/multiprint.prog").unwrap();
-        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
-            Interpreter::new(s.as_str());
+        let mut interp = interp(s.as_str());
         let mut io = TestIo::default();
         while !interp.completed() {
             interp.tick(&mut io).unwrap();
@@ -979,8 +976,7 @@ mod tests {
     #[test]
     fn test_printnums() {
         let s = std::fs::read_to_string("programs/printnums.prog").unwrap();
-        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
-            Interpreter::new(s.as_str());
+        let mut interp = interp(s.as_str());
         let mut io = TestIo::default();
         while !interp.completed() {
             interp.tick(&mut io).unwrap();
@@ -991,8 +987,7 @@ mod tests {
     #[test]
     fn test_one() {
         let s = std::fs::read_to_string("programs/one.prog").unwrap();
-        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
-            Interpreter::new(s.as_str());
+        let mut interp = interp(s.as_str());
         let mut io = TestIo::default();
         interp.tick(&mut io).unwrap();
         interp.tick(&mut io).unwrap();
@@ -1002,8 +997,7 @@ mod tests {
     #[test]
     fn test_add_one() {
         let s = std::fs::read_to_string("programs/add_one.prog").unwrap();
-        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
-            Interpreter::new(s.as_str());
+        let mut interp = interp(s.as_str());
         let mut io = TestIo::default();
         match interp.tick(&mut io) {
             TickResult::Ok(_) => panic!("Error!"),
@@ -1022,8 +1016,7 @@ mod tests {
     #[test]
     fn test_countdown() {
         let s = std::fs::read_to_string("programs/countdown.prog").unwrap();
-        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
-            Interpreter::new(s.as_str());
+        let mut interp = interp(s.as_str());
         let mut io = TestIo::default();
         match interp.tick(&mut io) {
             TickResult::Ok(_) => panic!("Error!"),
