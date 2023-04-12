@@ -245,7 +245,7 @@ impl<
                 }
             }
             _ => {
-                panic!("{:?}", &self.tokens.tokens[0..self.tokens.num_tokens]);
+                panic!("{} {:?}", self.token, &self.tokens.tokens[0..self.tokens.num_tokens]);
                 //return TickResult::Err(TickError::UnimplementedOpeartion);
             }
         }
