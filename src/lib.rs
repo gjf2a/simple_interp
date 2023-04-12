@@ -114,7 +114,7 @@ impl<
     }
 
     fn token_panic(&self, label: &str) {
-        panic!("{label} {} {:?}", self.token, &self.tokens.tokens[0..self.tokens.num_tokens]);
+        panic!("{label} {}/{} {:?}", self.token, self.tokens.num_tokens, &self.tokens.tokens[0..self.tokens.num_tokens]);
     }
 
     pub fn completed(&self) -> bool {
