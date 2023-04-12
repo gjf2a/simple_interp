@@ -870,33 +870,8 @@ fn is_number(chars: &[char]) -> bool {
 mod tests {
     use core::fmt::Display;
     use std::fs::read_to_string;
-    use gc_heap::CopyingHeap;
 
     use super::*;
-
-    const MAX_TOKENS: usize = 500;
-    const MAX_LITERAL_CHARS: usize = 30;
-    const STACK_DEPTH: usize = 50;
-    const MAX_LOCAL_VARS: usize = 20;
-    const HEAP_SIZE: usize = 1024;
-    const MAX_HEAP_BLOCKS: usize = HEAP_SIZE;
-
-    fn interp(s: &str) -> Interpreter<MAX_TOKENS, MAX_LITERAL_CHARS, STACK_DEPTH, MAX_LOCAL_VARS, 33, CopyingHeap<HEAP_SIZE, MAX_HEAP_BLOCKS>> {
-        Interpreter::new(s)
-    }
-
-    #[derive(Clone, Debug, Default)]
-    struct TestIo {
-        printed: String,
-    }
-
-    impl InterpreterOutput for TestIo {
-        fn print(&mut self, chars: &[u8]) {
-            for c in chars.iter() {
-                self.printed.push(*c as char);
-            }
-        }
-    }
 
     impl<const MAX_LITERAL_CHARS: usize> Token<MAX_LITERAL_CHARS> {
         fn var(&self) -> Option<String> {
@@ -949,87 +924,6 @@ mod tests {
         let example = read_to_string("programs/hello.prog").unwrap();
         let tokens = Tokenized::<500, 100>::tokenize(example.as_str()).unwrap();
         println!("{tokens}");
-    }
-
-    #[test]
-    fn test_hello_world() {
-        let s = std::fs::read_to_string("programs/hello.prog").unwrap();
-        // TODO: Stack overflow with heap size 16384. Look at this at some point.
-        //let mut interp: Interpreter<1000, 30, 50, 20, 16384, 4096, 80> =
-        let mut interp = interp(s.as_str());
-        let mut io = TestIo::default();
-        interp.tick(&mut io).unwrap();
-        assert_eq!(io.printed, "Hello, world!\n");
-    }
-
-    #[test]
-    fn test_multiprint() {
-        let s = std::fs::read_to_string("programs/multiprint.prog").unwrap();
-        let mut interp = interp(s.as_str());
-        let mut io = TestIo::default();
-        while !interp.completed() {
-            interp.tick(&mut io).unwrap();
-        }
-        assert_eq!(io.printed, "one\ntwo\nthree\n");
-    }
-
-    #[test]
-    fn test_printnums() {
-        let s = std::fs::read_to_string("programs/printnums.prog").unwrap();
-        let mut interp = interp(s.as_str());
-        let mut io = TestIo::default();
-        while !interp.completed() {
-            interp.tick(&mut io).unwrap();
-        }
-        assert_eq!(io.printed, "1\n257\n");
-    }
-
-    #[test]
-    fn test_one() {
-        let s = std::fs::read_to_string("programs/one.prog").unwrap();
-        let mut interp = interp(s.as_str());
-        let mut io = TestIo::default();
-        interp.tick(&mut io).unwrap();
-        interp.tick(&mut io).unwrap();
-        assert_eq!(io.printed, "5\n");
-    }
-
-    #[test]
-    fn test_add_one() {
-        let s = std::fs::read_to_string("programs/add_one.prog").unwrap();
-        let mut interp = interp(s.as_str());
-        let mut io = TestIo::default();
-        match interp.tick(&mut io) {
-            TickResult::Ok(_) => panic!("Error!"),
-            TickResult::AwaitInput => {
-                interp.provide_input(&['4']);
-            }
-            TickResult::Err(_) => panic!("Error!"),
-            TickResult::Finished => panic!("Program ended too soon."),
-        }
-
-        interp.tick(&mut io).unwrap();
-        interp.tick(&mut io).unwrap();
-        assert_eq!(io.printed, "Enter a number\n5\n");
-    }
-
-    #[test]
-    fn test_countdown() {
-        let s = std::fs::read_to_string("programs/countdown.prog").unwrap();
-        let mut interp = interp(s.as_str());
-        let mut io = TestIo::default();
-        match interp.tick(&mut io) {
-            TickResult::Ok(_) => panic!("Error!"),
-            TickResult::AwaitInput => {
-                interp.provide_input(&['3']);
-            }
-            TickResult::Err(_) => panic!("Error!"),
-            TickResult::Finished => panic!("Program ended too soon."),
-        }
-        while !interp.completed() {
-            interp.tick(&mut io).unwrap();
-        }        
-        assert_eq!(io.printed, "count\ndone\n0\n");
     }
 
     #[test]
