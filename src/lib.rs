@@ -136,7 +136,7 @@ impl<
     }
 
     pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
-        if self.token == self.tokens.tokens.len() {
+        if self.token == self.tokens.num_tokens {
             return TickResult::Finished;
         }
         match self.tokens.tokens[self.token] {
