@@ -519,36 +519,7 @@ impl Value {
     ) -> TickResult<usize> {
         match self.t {
             ValueType::Integer => match heap.load(self.location) {
-                HeapResult::Ok(w) => {
-                    let mut value = make_signed_from(w);
-                    if value == 0 {
-                        buffer[0] = '0' as u8;
-                        buffer[1] = '\n' as u8;
-                        return TickResult::Ok(2);
-                    }
-                    let mut start = if value < 0 {
-                        buffer[0] = '-' as u8;
-                        value = -value;
-                        1
-                    } else {
-                        0
-                    };
-                    let mut i = start;
-                    while value > 0 && i < buffer.len() - 1 {
-                        buffer[i] = (value % 10) as u8 + '0' as u8;
-                        value /= 10;
-                        i += 1;
-                    }
-                    while start < i / 2 {
-                        let temp = buffer[start];
-                        buffer[start] = buffer[i - start - 1];
-                        buffer[i - start - 1] = temp;
-                        start += 1;
-                    }
-                    buffer[i] = '\n' as u8;
-
-                    TickResult::Ok(i+1)
-                }
+                HeapResult::Ok(w) => i64_into_buffer(make_signed_from(w), buffer),
                 HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
             },
             ValueType::String => {
@@ -626,6 +597,36 @@ fn make_float_from(chars: &[char]) -> f64 {
         }
     }
     value
+}
+
+pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> TickResult<usize> {
+    if value == 0 {
+        buffer[0] = '0' as u8;
+        buffer[1] = '\n' as u8;
+        return TickResult::Ok(2);
+    }
+    let mut start = if value < 0 {
+        buffer[0] = '-' as u8;
+        value = -value;
+        1
+    } else {
+        0
+    };
+    let mut i = start;
+    while value > 0 && i < buffer.len() - 1 {
+        buffer[i] = (value % 10) as u8 + '0' as u8;
+        value /= 10;
+        i += 1;
+    }
+    while start < i / 2 {
+        let temp = buffer[start];
+        buffer[start] = buffer[i - start - 1];
+        buffer[i - start - 1] = temp;
+        start += 1;
+    }
+    buffer[i] = '\n' as u8;
+
+    TickResult::Ok(i+1)
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
