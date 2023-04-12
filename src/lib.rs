@@ -68,20 +68,18 @@ impl<T> TickResult<T> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TickError {
     HeapIssue(gc_heap::HeapError),
-    ParseIssue(ParseError),
+    UnmatchedParen,
+    SyntaxError,
+    TokensExhausted,
     UnassignedVariable,
     NestedInput,
     MissingBinaryOperator,
     IllegalBinaryOperator,
     NeedsBoolean,
     MissingOpeningBrace,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ParseError {
-    UnmatchedParen,
-    SyntaxError,
-    TokensExhausted,
+    MissingOpeningParen,
+    UnprocessableSymbol,
+    UnimplementedOpeartion,
 }
 
 impl<
@@ -160,14 +158,10 @@ impl<
                             Token::CloseParen => {
                                 self.token += 1;
                             }
-                            _ => {
-                                return TickResult::Err(TickError::ParseIssue(
-                                    ParseError::UnmatchedParen,
-                                ))
-                            }
+                            _ => return TickResult::Err(TickError::UnmatchedParen)
                         }
                     }
-                    _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
+                    _ => return TickResult::Err(TickError::MissingOpeningParen),
                 }
             }
             Token::Symbol(s) => {
@@ -190,7 +184,7 @@ impl<
                     Token::OpenParen => {
                         todo!("Function call");
                     }
-                    _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
+                    _ => return TickResult::Err(TickError::UnprocessableSymbol),
                 }
             }
             Token::While => {
@@ -250,7 +244,7 @@ impl<
                     }
                 }
             }
-            _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
+            _ => return TickResult::Err(TickError::UnimplementedOpeartion),
         }
         TickResult::Ok(())
     }
@@ -288,7 +282,7 @@ impl<
                 self.token += 1;
                 self.parse_operation(io)
             }
-            _ => TickResult::Err(TickError::ParseIssue(ParseError::TokensExhausted)),
+            _ => TickResult::Err(TickError::TokensExhausted),
         }
     }
 
@@ -307,7 +301,7 @@ impl<
                                         self.token += 1;
                                         self.do_arithmetic(value1, value2, op)
                                     }
-                                    _ => TickResult::Err(TickError::ParseIssue(ParseError::UnmatchedParen))
+                                    _ => TickResult::Err(TickError::UnmatchedParen)
                                 }
                             }
                             TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
@@ -390,14 +384,10 @@ impl<
                         self.token += 1;
                         return TickResult::AwaitInput;
                     }
-                    _ => {
-                        return TickResult::Err(TickError::ParseIssue(
-                            ParseError::UnmatchedParen,
-                        ))
-                    }
+                    _ => return TickResult::Err(TickError::UnmatchedParen)
                 }
             }
-            _ => return TickResult::Err(TickError::ParseIssue(ParseError::SyntaxError)),
+            _ => return TickResult::Err(TickError::MissingOpeningParen),
         }
     }
 
@@ -877,6 +867,17 @@ mod tests {
 
     use super::*;
 
+    const MAX_TOKENS: usize = 500;
+    const MAX_LITERAL_CHARS: usize = 30;
+    const STACK_DEPTH: usize = 50;
+    const MAX_LOCAL_VARS: usize = 20;
+    const HEAP_SIZE: usize = 1024;
+    const MAX_HEAP_BLOCKS: usize = HEAP_SIZE;
+
+    fn interp(s: &str) -> Interpreter<MAX_TOKENS, MAX_LITERAL_CHARS, STACK_DEPTH, MAX_LOCAL_VARS, HEAP_SIZE, MAX_HEAP_BLOCKS, 33> {
+        Interpreter::new(s)
+    }
+
     #[derive(Clone, Debug, Default)]
     struct TestIo {
         printed: String,
@@ -948,8 +949,7 @@ mod tests {
         let s = std::fs::read_to_string("programs/hello.prog").unwrap();
         // TODO: Stack overflow with heap size 16384. Look at this at some point.
         //let mut interp: Interpreter<1000, 30, 50, 20, 16384, 4096, 80> =
-        let mut interp: Interpreter<1000, 30, 50, 20, 4096, 4096, 80> =
-            Interpreter::new(s.as_str());
+        let mut interp = interp(s.as_str());
         let mut io = TestIo::default();
         interp.tick(&mut io).unwrap();
         assert_eq!(io.printed, "Hello, world!\n");
