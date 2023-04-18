@@ -150,6 +150,14 @@ impl<
                 self.token += 1;
                 self.parse_while(io, while_start)
             }
+            Token::If => {
+                self.token += 1;
+                self.parse_if(io)
+            }
+            Token::Else => {
+                self.token += 1;
+                self.skip_block()
+            }
             Token::CloseCurly => self.parse_block_end(),
             _ => {
                 self.token_panic("unimplemented");
@@ -243,6 +251,32 @@ impl<
         }
     }
 
+    fn parse_if<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
+        match self.parse_expr(io) {
+            TickResult::Finished => panic!("Program ended too soon."),
+            TickResult::AwaitInput => return TickResult::Err(TickError::NestedInput),
+            TickResult::Err(e) => return TickResult::Err(e),
+            TickResult::Ok(value) => {
+                match value.t {
+                    ValueType::Boolean => {
+                        if self.load_boolean(value.location) {
+                            self.parse_block_start()
+                        } else {
+                            self.skip_block();
+                            if let Token::Else = self.tokens.tokens[self.token] {
+                                self.token += 1;
+                                self.parse_block_start()
+                            } else {
+                                TickResult::Ok(())
+                            }
+                        }
+                    }
+                    _ => TickResult::Err(TickError::NeedsBoolean)
+                }
+            }
+        }
+    }
+
     fn skip_block(&mut self) -> TickResult<()> {
         let goal_depth = self.brace_stacker.depth();
         match self.tokens.tokens[self.token] {
@@ -264,6 +298,16 @@ impl<
                 TickResult::Ok(())
             }
             _ => TickResult::Err(TickError::MissingOpeningBrace)
+        }
+    }
+
+    fn parse_block_start(&mut self) -> TickResult<()> {
+        if let Token::OpenCurly = self.tokens.tokens[self.token] {
+            self.token += 1;
+            self.brace_stacker.opening_brace();
+            TickResult::Ok(())
+        } else {
+            TickResult::Err(TickError::MissingOpeningBrace)
         }
     }
 
