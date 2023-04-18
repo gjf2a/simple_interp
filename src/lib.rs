@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+//#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -271,7 +271,10 @@ impl<
                             }
                         }
                     }
-                    _ => panic!("value: {value:?}")//TickResult::Err(TickError::NeedsBoolean)
+                    _ => {
+                        println!("value: {value:?}");
+                        TickResult::Err(TickError::NeedsBoolean)
+                    }
                 }
             }
         }
@@ -342,9 +345,10 @@ impl<
                 self.malloc_string(&s)
             }
             Token::Symbol(s) => {
+                println!("Looking up symbol {s:?}");
                 self.token += 1;
                 match self.stack.look_up(Variable(s)) {
-                    Some(value) => TickResult::Ok(value),
+                    Some(value) => {println!("Value of s: {value:?}"); TickResult::Ok(value)}
                     None => TickResult::Err(TickError::UnassignedVariable)
                 }
             }
