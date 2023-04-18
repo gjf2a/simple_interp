@@ -139,116 +139,141 @@ impl<
         match self.tokens.tokens[self.token] {
             Token::Print => {
                 self.token += 1;
-                match self.tokens.tokens[self.token] {
-                    Token::OpenParen => {
-                        self.token += 1;
-                        match self.parse_expr(io) {
-                            TickResult::Ok(v) => match self.print_value(&v, io) {
-                                TickResult::Ok(_) => {}
-                                TickResult::Err(e) => return TickResult::Err(e),
-                                TickResult::AwaitInput => panic!("Input to print not implemented"),
-                                TickResult::Finished => panic!("Program ended too soon."),
-                            },
-                            TickResult::AwaitInput => {
-                                panic!("Input to print not implemented");
-                            }
-                            TickResult::Err(e) => return TickResult::Err(e),
-                            TickResult::Finished => panic!("Program ended too soon."),
-                        }
-                        match self.tokens.tokens[self.token] {
-                            Token::CloseParen => {
-                                self.token += 1;
-                            }
-                            _ => return TickResult::Err(TickError::UnmatchedParen)
-                        }
-                    }
-                    _ => return TickResult::Err(TickError::MissingOpeningParen),
-                }
+                self.parse_print(io)
             }
             Token::Symbol(s) => {
                 self.token += 1;
-                match self.tokens.tokens[self.token] {
-                    Token::Assign => {
-                        self.token += 1;
-                        match self.parse_expr(io) {
-                            TickResult::Ok(value) => {
-                                self.stack.assign(Variable(s), value);
-                            }
-                            TickResult::Err(e) => return TickResult::Err(e),
-                            TickResult::AwaitInput => {
-                                self.pending_assignment = Some(Variable(s));
-                                return TickResult::AwaitInput;
-                            }
-                            TickResult::Finished => panic!("Program ended too soon."),
-                        }
-                    }
-                    Token::OpenParen => {
-                        self.token_panic("Func call");
-                        todo!("Function call");
-                    }
-                    _ => return TickResult::Err(TickError::UnprocessableSymbol),
-                }
+                self.parse_symbol(io, s)
             }
             Token::While => {
                 let while_start = self.token;
                 self.token += 1;
-                match self.parse_expr(io) {
-                    TickResult::Finished => panic!("Program ended too soon."),
-                    TickResult::AwaitInput => return TickResult::Err(TickError::NestedInput),
-                    TickResult::Err(e) => return TickResult::Err(e),
-                    TickResult::Ok(value) => {
-                        match value.t {
-                            ValueType::Boolean => {
-                                if self.load_boolean(value.location) {
-                                    match self.tokens.tokens[self.token] {
-                                        Token::OpenCurly => {
-                                            self.token += 1;
-                                            self.brace_stacker.while_loop(while_start);
-                                            return TickResult::Ok(());
-                                        }
-                                        _ => return TickResult::Err(TickError::MissingOpeningBrace)
-                                    }
-                                } else {
-                                    let goal_depth = self.brace_stacker.depth();
-                                    match self.tokens.tokens[self.token] {
-                                        Token::OpenCurly => {
-                                            self.token += 1;
-                                            self.brace_stacker.while_loop(self.token);
-                                            while self.brace_stacker.depth() > goal_depth {
-                                                match self.tokens.tokens[self.token] {
-                                                    Token::OpenCurly => {
-                                                        self.brace_stacker.opening_brace();
-                                                    }
-                                                    Token::CloseCurly => {
-                                                        self.brace_stacker.closing_brace();
-                                                    }
-                                                    _ => {}
-                                                }
-                                                self.token += 1;
-                                            }
-                                        }
-                                        _ => return TickResult::Err(TickError::MissingOpeningBrace)
-                                    }
-                                }
-                            }
-                            _ => return TickResult::Err(TickError::NeedsBoolean),
-                        }
-                    }
-                }
+                self.parse_while(io, while_start)
             }
-            Token::CloseCurly => {
-                match self.brace_stacker.closing_brace() {
-                    Some(while_token) => {
-                        self.token = while_token;
-                    }
-                    None => {
-                        self.token += 1;
-                    }
-                }
-            }
+            Token::CloseCurly => self.parse_block_end(),
             _ => {
                 self.token_panic("unimplemented");
-                //return TickResult::Err(TickError::UnimplementedOpeartion);
+                todo!()
+            }
+        }
+    }
+
+    fn parse_print<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
+        match self.tokens.tokens[self.token] {
+            Token::OpenParen => {
+                self.token += 1;
+                match self.parse_expr(io) {
+                    TickResult::Ok(v) => match self.print_value(&v, io) {
+                        TickResult::Ok(_) => {}
+                        TickResult::Err(e) => return TickResult::Err(e),
+                        TickResult::AwaitInput => panic!("Input to print not implemented"),
+                        TickResult::Finished => panic!("Program ended too soon."),
+                    },
+                    TickResult::AwaitInput => {
+                        panic!("Input to print not implemented");
+                    }
+                    TickResult::Err(e) => return TickResult::Err(e),
+                    TickResult::Finished => panic!("Program ended too soon."),
+                }
+                match self.tokens.tokens[self.token] {
+                    Token::CloseParen => {
+                        self.token += 1;
+                        TickResult::Ok(())
+                    }
+                    _ => return TickResult::Err(TickError::UnmatchedParen)
+                }
+            }
+            _ => return TickResult::Err(TickError::MissingOpeningParen),
+        }
+    }
+
+    fn parse_symbol<I: InterpreterOutput>(&mut self, io: &mut I, s: [char; MAX_LITERAL_CHARS]) -> TickResult<()> {
+        match self.tokens.tokens[self.token] {
+            Token::Assign => {
+                self.token += 1;
+                match self.parse_expr(io) {
+                    TickResult::Ok(value) => {
+                        self.stack.assign(Variable(s), value);
+                        TickResult::Ok(())
+                    }
+                    TickResult::Err(e) => return TickResult::Err(e),
+                    TickResult::AwaitInput => {
+                        self.pending_assignment = Some(Variable(s));
+                        return TickResult::AwaitInput;
+                    }
+                    TickResult::Finished => panic!("Program ended too soon."),
+                }
+            }
+            Token::OpenParen => {
+                self.token_panic("Func call");
+                todo!("Function call");
+            }
+            _ => return TickResult::Err(TickError::UnprocessableSymbol),
+        }
+    }
+
+    fn parse_while<I: InterpreterOutput>(&mut self, io: &mut I, while_start: usize) -> TickResult<()> {
+        match self.parse_expr(io) {
+            TickResult::Finished => panic!("Program ended too soon."),
+            TickResult::AwaitInput => return TickResult::Err(TickError::NestedInput),
+            TickResult::Err(e) => return TickResult::Err(e),
+            TickResult::Ok(value) => {
+                match value.t {
+                    ValueType::Boolean => {
+                        if self.load_boolean(value.location) {
+                            self.enter_while(while_start)
+                        } else {
+                            self.skip_block()
+                        }
+                    }
+                    _ => TickResult::Err(TickError::NeedsBoolean)
+                }
+            }
+        }
+    }
+
+    fn enter_while(&mut self, while_start: usize) -> TickResult<()> {
+        match self.tokens.tokens[self.token] {
+            Token::OpenCurly => {
+                self.token += 1;
+                self.brace_stacker.while_loop(while_start);
+                TickResult::Ok(())
+            }
+            _ => TickResult::Err(TickError::MissingOpeningBrace)
+        }
+    }
+
+    fn skip_block(&mut self) -> TickResult<()> {
+        let goal_depth = self.brace_stacker.depth();
+        match self.tokens.tokens[self.token] {
+            Token::OpenCurly => {
+                self.token += 1;
+                self.brace_stacker.while_loop(self.token);
+                while self.brace_stacker.depth() > goal_depth {
+                    match self.tokens.tokens[self.token] {
+                        Token::OpenCurly => {
+                            self.brace_stacker.opening_brace();
+                        }
+                        Token::CloseCurly => {
+                            self.brace_stacker.closing_brace();
+                        }
+                        _ => {}
+                    }
+                    self.token += 1;
+                } 
+                TickResult::Ok(())
+            }
+            _ => TickResult::Err(TickError::MissingOpeningBrace)
+        }
+    }
+
+    fn parse_block_end(&mut self) -> TickResult<()> {
+        match self.brace_stacker.closing_brace() {
+            Some(while_token) => {
+                self.token = while_token;
+            }
+            None => {
+                self.token += 1;
             }
         }
         TickResult::Ok(())
