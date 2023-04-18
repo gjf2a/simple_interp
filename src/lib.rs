@@ -405,6 +405,12 @@ impl<
                             Token::Minus => {
                                 self.malloc_numeric_value(make_unsigned_from(v1 - v2), ValueType::Integer)
                             }
+                            Token::Times => {
+                                self.malloc_numeric_value(make_unsigned_from(v1 * v2), ValueType::Integer)
+                            }
+                            Token::Divide => {
+                                self.malloc_numeric_value(make_unsigned_from(v1 / v2), ValueType::Integer)
+                            }
                             Token::LessThan => {
                                 self.malloc_boolean(v1 < v2)
                             }
