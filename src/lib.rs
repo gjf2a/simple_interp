@@ -428,12 +428,17 @@ impl<
                         }
                     }
                     ValueType::Float => todo!(),
-                    ValueType::String => todo!(),
+                    ValueType::String => self.malloc_boolean(false),
                     ValueType::Boolean => todo!(),
                 }
             }
             ValueType::Float => todo!(),
-            ValueType::String => todo!(),
+            ValueType::String => {
+                match value2.t {
+                    ValueType::String => todo!("do this next!"),
+                    _ => self.malloc_boolean(false),
+                }
+            }
             ValueType::Boolean => todo!(),
         }
     }
