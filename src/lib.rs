@@ -271,7 +271,7 @@ impl<
                             }
                         }
                     }
-                    _ => TickResult::Err(TickError::NeedsBoolean)
+                    _ => panic!("value: {value:?}")//TickResult::Err(TickError::NeedsBoolean)
                 }
             }
         }
