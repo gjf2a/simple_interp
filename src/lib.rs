@@ -644,7 +644,18 @@ impl Value {
                 TickResult::Ok(end + 1)
             }
             ValueType::Float => todo!(),
-            ValueType::Boolean => todo!(),
+            ValueType::Boolean => {
+                match heap.load(self.location) {
+                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+                    HeapResult::Ok(b) => {
+                        let bytes = if b == 0 {"false\n".as_bytes()} else {"true\n".as_bytes()};
+                        for (i, c) in bytes.iter().enumerate() {
+                            buffer[i] = *c;
+                        }
+                        TickResult::Ok(buffer.len() + 1)
+                    }
+                }
+            }
         }
     }
 }
