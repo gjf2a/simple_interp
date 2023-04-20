@@ -202,6 +202,11 @@ impl<
                 match self.parse_expr(io) {
                     TickResult::Ok(value) => {
                         self.stack.assign(Variable(s), value);
+                        let mut buffer = [0; 10];
+                        // Debugging code
+                        value.output(&self.heap, &mut buffer).unwrap();
+                        println!("Assigning {s:?} the value {buffer:?}");
+                        // end debugging code
                         TickResult::Ok(())
                     }
                     TickResult::Err(e) => return TickResult::Err(e),
@@ -601,12 +606,6 @@ struct Value {
     t: ValueType,
 }
 
-impl Value {
-    pub fn block_num(&self) -> usize {
-        self.location.block_num()
-    }
-}
-
 impl Default for Value {
     fn default() -> Self {
         Self { location: Default::default(), t: ValueType::Integer }
@@ -614,6 +613,10 @@ impl Default for Value {
 }
 
 impl Value {
+    pub fn block_num(&self) -> usize {
+        self.location.block_num()
+    }
+
     fn output<G: GarbageCollectingHeap + Copy>(
         &self,
         heap: &G,
