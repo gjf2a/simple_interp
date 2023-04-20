@@ -353,7 +353,12 @@ impl<
                 println!("Looking up symbol {s:?}");
                 self.token += 1;
                 match self.stack.look_up(Variable(s)) {
-                    Some(value) => {println!("Value of s: {value:?}"); TickResult::Ok(value)}
+                    Some(value) => {
+                        let mut buffer = [0; 10];
+                        value.output(&self.heap, &mut buffer).unwrap();
+                        println!("Value of s: {buffer:?}"); 
+                        TickResult::Ok(value)
+                    }
                     None => TickResult::Err(TickError::UnassignedVariable)
                 }
             }
