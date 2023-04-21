@@ -481,15 +481,9 @@ impl<
     fn parse_not<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
         match self.parse_expr(io) {
             TickResult::Ok(arg) => {
-                match self.current_token() {
-                    Token::CloseParen => {
-                        self.advance_token();
-                        match arg.t {
-                            ValueType::Boolean => self.malloc_boolean(!self.load_boolean(arg.location)),
-                            _ => TickResult::Err(TickError::NeedsBoolean)
-                        }
-                    }
-                    _ => TickResult::Err(TickError::UnmatchedParen)
+                match arg.t {
+                    ValueType::Boolean => self.malloc_boolean(!self.load_boolean(arg.location)),
+                    _ => TickResult::Err(TickError::NeedsBoolean)
                 }
             }
             TickResult::Finished => panic!("Program ended too soon."),
