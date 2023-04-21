@@ -1,4 +1,4 @@
-//#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -211,11 +211,6 @@ impl<
                 match self.parse_expr(io) {
                     TickResult::Ok(value) => {
                         self.stack.assign(Variable(s), value);
-                        let mut buffer = [0; 10];
-                        // Debugging code
-                        value.output(&self.heap, &mut buffer).unwrap();
-                        println!("Assigning {s:?} the value {buffer:?}");
-                        // end debugging code
                         TickResult::Ok(())
                     }
                     TickResult::Err(e) => return TickResult::Err(e),
@@ -286,7 +281,6 @@ impl<
                         }
                     }
                     _ => {
-                        println!("value: {value:?}");
                         TickResult::Err(TickError::NeedsBoolean)
                     }
                 }
@@ -332,7 +326,6 @@ impl<
         match self.brace_stacker.closing_brace() {
             Some(while_token) => {
                 self.token = while_token;
-                println!("===> heading back to `while` token ({:?}) {while_token}", self.current_token());
             }
             None => {
                 self.advance_token();
@@ -360,13 +353,11 @@ impl<
                 self.malloc_string(&s)
             }
             Token::Symbol(s) => {
-                println!("Looking up symbol {s:?}");
                 self.advance_token();
                 match self.stack.look_up(Variable(s)) {
                     Some(value) => {
                         let mut buffer = [0; 10];
                         value.output(&self.heap, &mut buffer).unwrap();
-                        println!("Value of s: {buffer:?}"); 
                         TickResult::Ok(value)
                     }
                     None => TickResult::Err(TickError::UnassignedVariable)

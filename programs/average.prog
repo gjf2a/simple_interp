@@ -3,7 +3,7 @@ count := 0
 averaging := true
 while averaging {
     num := input("Enter a number:")
-    if num == "quit" {
+    if (num == "quit") {
         averaging := false
     } else {
         sum := (sum + num)
@@ -11,3 +11,4 @@ while averaging {
     }
 }
 print((sum / count))
+
