@@ -426,13 +426,21 @@ impl<
                         self.perform_binary_op(v1, v2, op, ValueType::Integer, make_unsigned_from)
                     }
                     ValueType::Float => todo!(),
-                    ValueType::String => self.malloc_boolean(false),
+                    ValueType::String => self.string_not_string(op), 
                     ValueType::Boolean => todo!(),
                 }
             }
             ValueType::Float => {
                 let v1 = self.load_float(value1.location);
-                todo!()
+                match value2.t {
+                    ValueType::Float => {
+                        let v2 = self.load_float(value2.location);
+                        self.perform_binary_op(v1, v2, op, ValueType::Float, f64::to_bits)
+                    }
+                    ValueType::Integer => todo!(),
+                    ValueType::String => self.string_not_string(op),
+                    ValueType::Boolean => todo!(),
+                }
             }
             ValueType::String => {
                 match value2.t {
@@ -460,6 +468,14 @@ impl<
                 }
             }
             ValueType::Boolean => todo!(),
+        }
+    }
+
+    fn string_not_string(&mut self, op: Token<MAX_LITERAL_CHARS>) -> TickResult<Value> {
+        if let Token::Equal = op {
+            self.malloc_boolean(false)
+        } else {
+            TickResult::Err(TickError::IllegalBinaryOperator)
         }
     }
 
