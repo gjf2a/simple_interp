@@ -403,7 +403,7 @@ impl<
                             TickResult::Finished => panic!("Program ended too soon."),
                         }
                     }
-                    _ => TickResult::Err(TickError::MissingBinaryOperator)
+                    _ => panic!("Missing operator: {:?}", self.current_token())//TickResult::Err(TickError::MissingBinaryOperator)
                 }
             }
             TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
