@@ -1,4 +1,4 @@
-//#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -829,12 +829,10 @@ pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
     let mut bytes = i64_into_buffer(value as i64, buffer).unwrap();
     buffer[bytes - 1] = '.' as u8;
     value -= (value as i64) as f64;
-    println!("value fraction: {value}");
     let mut shifts = 0;
     while (value as i64) as f64 != value && shifts + bytes + 1 < buffer.len() {
         value *= 10.0;
         shifts += 1;
-        println!("shifted value: {value}");
     }
     bytes += i64_into_buffer(value as i64, &mut buffer[bytes..]).unwrap();
     TickResult::Ok(bytes)
