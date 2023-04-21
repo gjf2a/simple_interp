@@ -532,7 +532,7 @@ impl<
             TickResult::Ok(arg) => {
                 match arg.t {
                     ValueType::Integer => self.malloc_numeric_value(make_unsigned_from(-self.load_int(arg.location)), ValueType::Integer),
-                    ValueType::Float => todo!(),
+                    ValueType::Float => self.malloc_numeric_value((-self.load_float(arg.location)).to_bits(), ValueType::Float),
                     _ => TickResult::Err(TickError::NotNegateable)
                 }
             }
