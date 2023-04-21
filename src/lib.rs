@@ -830,10 +830,23 @@ pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
     buffer[bytes - 1] = '.' as u8;
     value -= (value as i64) as f64;
     let mut shifts = 0;
+    let mut found_non_zero = false;
+    let mut num_leading_zeros = 0;
     while (value as i64) as f64 != value && shifts + bytes + 1 < buffer.len() {
         value *= 10.0;
+        if !found_non_zero {
+            if value as i64 == 0 {
+                num_leading_zeros += 1;
+            } else {
+                found_non_zero = true;
+            }
+        }
         shifts += 1;
     }
+    for i in 0..num_leading_zeros {
+        buffer[bytes + i] = '0' as u8;
+    }
+    bytes += num_leading_zeros;
     bytes += i64_into_buffer(value as i64, &mut buffer[bytes..]).unwrap();
     TickResult::Ok(bytes)
 }
@@ -1182,5 +1195,14 @@ mod tests {
         let bytes = f64_into_buffer(f, &mut buffer).unwrap();
         assert_eq!(bytes, buffer.len());
         assert_eq!(format!("{buffer:?}"), "[49, 50, 51, 52, 46, 53, 54, 55, 56, 57, 48, 10]");
+    }
+
+    #[test]
+    fn test_simple_pi() {
+        let f = 3.0418396189294032;
+        let mut buffer = [0; 30];
+        let bytes = f64_into_buffer(f, &mut buffer).unwrap();
+        assert_eq!(bytes, 20);
+        assert_eq!(format!("{buffer:?}"), "[51, 46, 48, 52, 49, 56, 51, 57, 54, 49, 56, 57, 50, 57, 52, 48, 51, 50, 52, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]");
     }
 }
