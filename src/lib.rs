@@ -299,7 +299,7 @@ impl<
         match self.current_token() {
             Token::OpenCurly => {
                 self.advance_token();
-                self.brace_stacker.while_loop(self.token);
+                self.brace_stacker.opening_brace();
                 while self.brace_stacker.depth() > goal_depth {
                     match self.current_token() {
                         Token::OpenCurly => {
