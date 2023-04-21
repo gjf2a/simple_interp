@@ -7,7 +7,7 @@
 // cargo update
 // cargo build
 
-use core::ops::FnOnce;
+use core::ops::{FnOnce, Add, Sub, Mul, Div};
 use core::default::Default;
 use core::option::Option;
 use core::option::Option::{None, Some};
@@ -423,37 +423,17 @@ impl<
                 match value2.t {
                     ValueType::Integer => {
                         let v2 = self.load_int(value2.location);
-                        match op {
-                            Token::Plus => {
-                                self.malloc_numeric_value(make_unsigned_from(v1 + v2), ValueType::Integer)
-                            }
-                            Token::Minus => {
-                                self.malloc_numeric_value(make_unsigned_from(v1 - v2), ValueType::Integer)
-                            }
-                            Token::Times => {
-                                self.malloc_numeric_value(make_unsigned_from(v1 * v2), ValueType::Integer)
-                            }
-                            Token::Divide => {
-                                self.malloc_numeric_value(make_unsigned_from(v1 / v2), ValueType::Integer)
-                            }
-                            Token::LessThan => {
-                                self.malloc_boolean(v1 < v2)
-                            }
-                            Token::GreaterThan => {
-                                self.malloc_boolean(v1 > v2)
-                            }
-                            Token::Equal => {
-                                self.malloc_boolean(v1 == v2)
-                            }
-                            _ => TickResult::Err(TickError::IllegalBinaryOperator)
-                        }
+                        self.perform_binary_op(v1, v2, op, ValueType::Integer, make_unsigned_from)
                     }
                     ValueType::Float => todo!(),
                     ValueType::String => self.malloc_boolean(false),
                     ValueType::Boolean => todo!(),
                 }
             }
-            ValueType::Float => todo!(),
+            ValueType::Float => {
+                let v1 = self.load_float(value1.location);
+                todo!()
+            }
             ValueType::String => {
                 match value2.t {
                     ValueType::String => {
@@ -480,6 +460,33 @@ impl<
                 }
             }
             ValueType::Boolean => todo!(),
+        }
+    }
+
+    fn perform_binary_op<N:Add<Output=N> + Sub<Output=N> + Mul<Output=N> + Div<Output=N> + PartialOrd + PartialEq, F:Fn(N) -> u64>(&mut self, v1: N, v2: N, op: Token<MAX_LITERAL_CHARS>, vt: ValueType, encoder_u64: F) -> TickResult<Value> {
+        match op {
+            Token::Plus => {
+                self.malloc_numeric_value(encoder_u64(v1 + v2), vt)
+            }
+            Token::Minus => {
+                self.malloc_numeric_value(encoder_u64(v1 - v2), vt)
+            }
+            Token::Times => {
+                self.malloc_numeric_value(encoder_u64(v1 * v2), vt)
+            }
+            Token::Divide => {
+                self.malloc_numeric_value(encoder_u64(v1 / v2), vt)
+            }
+            Token::LessThan => {
+                self.malloc_boolean(v1 < v2)
+            }
+            Token::GreaterThan => {
+                self.malloc_boolean(v1 > v2)
+            }
+            Token::Equal => {
+                self.malloc_boolean(v1 == v2)
+            }
+            _ => TickResult::Err(TickError::IllegalBinaryOperator)
         }
     }
 
@@ -520,6 +527,10 @@ impl<
         self.heap.load(p).unwrap() != 0
     }
 
+    fn load_float(&self, p: Pointer) -> f64 {
+        f64::from_bits(self.heap.load(p).unwrap())
+    }
+
     fn parse_input<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
         match self.current_token() {
             Token::OpenParen => {
@@ -556,10 +567,10 @@ impl<
 
     fn malloc_number(&mut self, n: &[char]) -> TickResult<Value> {
         let (t, value) = if n.contains(&'.') {
-            let float_val = make_float_from(n);
+            let float_val = parse_float_from(n);
             (ValueType::Float, float_val.to_bits())
         } else {
-            (ValueType::Integer, make_int_from(n))
+            (ValueType::Integer, parse_int_from(n))
         };
         self.malloc_numeric_value(value, t)
     }
@@ -711,7 +722,7 @@ enum ValueType {
     Boolean
 }
 
-fn make_int_from(chars: &[char]) -> u64 {
+fn parse_int_from(chars: &[char]) -> u64 {
     let mut value = 0;
     for c in chars.iter().take_while(|c| **c != '\0') {
         value *= 10;
@@ -736,7 +747,7 @@ fn make_unsigned_from(value: i64) -> u64 {
     }
 }
 
-fn make_float_from(chars: &[char]) -> f64 {
+fn parse_float_from(chars: &[char]) -> f64 {
     let mut value = 0.0;
     let mut shifter = None;
     for c in chars.iter().take_while(|c| **c != '\0') {
@@ -1092,7 +1103,7 @@ mod tests {
     fn test_parse_int() {
         for s in [['1', '0'], ['1', '2'], ['2', '1'], ['4', '3']] {
             let expected = s.iter().collect::<String>().parse::<u64>().unwrap();
-            assert_eq!(expected, make_int_from(&s));
+            assert_eq!(expected, parse_int_from(&s));
         }
     }
 
@@ -1105,7 +1116,7 @@ mod tests {
             ['2', '.', '4', '4', '8'],
         ] {
             let expected = s.iter().collect::<String>().parse::<f64>().unwrap();
-            assert_eq!(expected, make_float_from(&s));
+            assert_eq!(expected, parse_float_from(&s));
         }
     }
 
