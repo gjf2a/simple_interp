@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+//#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -826,7 +826,18 @@ pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> TickResult<usize> {
 }
 
 pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
-    todo!()
+    let mut bytes = i64_into_buffer(value as i64, buffer).unwrap();
+    buffer[bytes - 1] = '.' as u8;
+    value -= (value as i64) as f64;
+    println!("value fraction: {value}");
+    let mut shifts = 0;
+    while (value as i64) as f64 != value && shifts + bytes + 1 < buffer.len() {
+        value *= 10.0;
+        shifts += 1;
+        println!("shifted value: {value}");
+    }
+    bytes += i64_into_buffer(value as i64, &mut buffer[bytes..]).unwrap();
+    TickResult::Ok(bytes)
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -1164,5 +1175,14 @@ mod tests {
             assert_eq!(value, signed);
             assert_eq!(bits, make_unsigned_from(signed));
         }
+    }
+
+    #[test]
+    fn test_output_f64() {
+        let f = 1234.56789;
+        let mut buffer = [0; 12];
+        let bytes = f64_into_buffer(f, &mut buffer).unwrap();
+        assert_eq!(bytes, buffer.len());
+        assert_eq!(format!("{buffer:?}"), "[49, 50, 51, 52, 46, 53, 54, 55, 56, 57, 48, 10]");
     }
 }
