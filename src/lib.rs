@@ -112,7 +112,7 @@ impl<
 
     fn advance_token(&mut self) {
         self.token += 1;
-        println!("==> {:?} ({})", self.current_token(), self.token);
+        //println!("==> {:?} ({})", self.current_token(), self.token);
     }
 
     fn current_token(&self) -> Token<MAX_LITERAL_CHARS> {
