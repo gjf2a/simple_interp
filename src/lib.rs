@@ -67,6 +67,7 @@ impl<T> TickResult<T> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TickError {
     HeapIssue(HeapError),
+    NotNegateable,
     UnmatchedParen,
     SyntaxError,
     UnprocessableToken,
@@ -374,6 +375,10 @@ impl<
                 self.advance_token();
                 self.parse_not(io)
             }
+            Token::Minus => {
+                self.advance_token();
+                self.parse_negate(io)
+            }
             _ => {
                 TickResult::Err(TickError::UnprocessableToken)
             }
@@ -484,6 +489,21 @@ impl<
                 match arg.t {
                     ValueType::Boolean => self.malloc_boolean(!self.load_boolean(arg.location)),
                     _ => TickResult::Err(TickError::NeedsBoolean)
+                }
+            }
+            TickResult::Finished => panic!("Program ended too soon."),
+            TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
+            TickResult::Err(e) => TickResult::Err(e),
+        }
+    }
+
+    fn parse_negate<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
+        match self.parse_expr(io) {
+            TickResult::Ok(arg) => {
+                match arg.t {
+                    ValueType::Integer => self.malloc_numeric_value(make_unsigned_from(-self.load_int(arg.location)), ValueType::Integer),
+                    ValueType::Float => todo!(),
+                    _ => TickResult::Err(TickError::NotNegateable)
                 }
             }
             TickResult::Finished => panic!("Program ended too soon."),
