@@ -457,22 +457,20 @@ impl<
                 match value2.t {
                     ValueType::String => {
                         self.malloc_boolean(if value1.location.len() == value2.location.len() {
-                            let mut p1 = value1.location.clone();
-                            let mut p2 = value2.location.clone();
-                            let mut result = true;
-                            for _ in 0..value1.location.len() {
-                                if result {
-                                    let v1 = self.heap.load(p1).unwrap();
-                                    let v2 = self.heap.load(p2).unwrap();
-                                    if v1 == v2 {
-                                        p1 = p1.next().unwrap();
-                                        p2 = p2.next().unwrap();
-                                    } else {
-                                        result = false;
-                                    }
+                            let mut p1 = Some(value1.location.clone());
+                            let mut p2 = Some(value2.location.clone());
+                            let mut strings_match = true;
+                            while strings_match && p1.is_some() {
+                                let v1 = self.heap.load(p1.unwrap()).unwrap();
+                                let v2 = self.heap.load(p2.unwrap()).unwrap();
+                                if v1 == v2 {
+                                    p1 = p1.unwrap().next();
+                                    p2 = p2.unwrap().next();
+                                } else {
+                                    strings_match = false;
                                 }
                             }
-                            result
+                            strings_match
                         } else {
                             false
                         })
