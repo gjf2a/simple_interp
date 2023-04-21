@@ -110,6 +110,15 @@ impl<
         }
     }
 
+    fn advance_token(&mut self) {
+        self.token += 1;
+        println!("Advanced to {:?}", self.current_token());
+    }
+
+    fn current_token(&self) -> Token<MAX_LITERAL_CHARS> {
+        self.tokens.tokens[self.token]
+    }
+
     fn token_panic(&self, label: &str) {
         panic!("{label} {}/{} {:?}", self.token, self.tokens.num_tokens, &self.tokens.tokens[0..self.tokens.num_tokens]);
     }
@@ -136,26 +145,26 @@ impl<
         if self.token == self.tokens.num_tokens {
             return TickResult::Finished;
         }
-        match self.tokens.tokens[self.token] {
+        match self.current_token() {
             Token::Print => {
-                self.token += 1;
+                self.advance_token();
                 self.parse_print(io)
             }
             Token::Symbol(s) => {
-                self.token += 1;
+                self.advance_token();
                 self.parse_symbol(io, s)
             }
             Token::While => {
                 let while_start = self.token;
-                self.token += 1;
+                self.advance_token();
                 self.parse_while(io, while_start)
             }
             Token::If => {
-                self.token += 1;
+                self.advance_token();
                 self.parse_if(io)
             }
             Token::Else => {
-                self.token += 1;
+                self.advance_token();
                 self.skip_block()
             }
             Token::CloseCurly => self.parse_block_end(),
@@ -167,9 +176,9 @@ impl<
     }
 
     fn parse_print<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
-        match self.tokens.tokens[self.token] {
+        match self.current_token() {
             Token::OpenParen => {
-                self.token += 1;
+                self.advance_token();
                 match self.parse_expr(io) {
                     TickResult::Ok(v) => match self.print_value(&v, io) {
                         TickResult::Ok(_) => {}
@@ -183,9 +192,9 @@ impl<
                     TickResult::Err(e) => return TickResult::Err(e),
                     TickResult::Finished => panic!("Program ended too soon."),
                 }
-                match self.tokens.tokens[self.token] {
+                match self.current_token() {
                     Token::CloseParen => {
-                        self.token += 1;
+                        self.advance_token();
                         TickResult::Ok(())
                     }
                     _ => return TickResult::Err(TickError::UnmatchedParen)
@@ -196,9 +205,9 @@ impl<
     }
 
     fn parse_symbol<I: InterpreterOutput>(&mut self, io: &mut I, s: [char; MAX_LITERAL_CHARS]) -> TickResult<()> {
-        match self.tokens.tokens[self.token] {
+        match self.current_token() {
             Token::Assign => {
-                self.token += 1;
+                self.advance_token();
                 match self.parse_expr(io) {
                     TickResult::Ok(value) => {
                         self.stack.assign(Variable(s), value);
@@ -246,9 +255,9 @@ impl<
     }
 
     fn enter_while(&mut self, while_start: usize) -> TickResult<()> {
-        match self.tokens.tokens[self.token] {
+        match self.current_token() {
             Token::OpenCurly => {
-                self.token += 1;
+                self.advance_token();
                 self.brace_stacker.while_loop(while_start);
                 TickResult::Ok(())
             }
@@ -268,8 +277,8 @@ impl<
                             self.parse_block_start()
                         } else {
                             self.skip_block();
-                            if let Token::Else = self.tokens.tokens[self.token] {
-                                self.token += 1;
+                            if let Token::Else = self.current_token() {
+                                self.advance_token();
                                 self.parse_block_start()
                             } else {
                                 TickResult::Ok(())
@@ -287,12 +296,12 @@ impl<
 
     fn skip_block(&mut self) -> TickResult<()> {
         let goal_depth = self.brace_stacker.depth();
-        match self.tokens.tokens[self.token] {
+        match self.current_token() {
             Token::OpenCurly => {
-                self.token += 1;
+                self.advance_token();
                 self.brace_stacker.while_loop(self.token);
                 while self.brace_stacker.depth() > goal_depth {
-                    match self.tokens.tokens[self.token] {
+                    match self.current_token() {
                         Token::OpenCurly => {
                             self.brace_stacker.opening_brace();
                         }
@@ -301,7 +310,7 @@ impl<
                         }
                         _ => {}
                     }
-                    self.token += 1;
+                    self.advance_token();
                 } 
                 TickResult::Ok(())
             }
@@ -310,8 +319,8 @@ impl<
     }
 
     fn parse_block_start(&mut self) -> TickResult<()> {
-        if let Token::OpenCurly = self.tokens.tokens[self.token] {
-            self.token += 1;
+        if let Token::OpenCurly = self.current_token() {
+            self.advance_token();
             self.brace_stacker.opening_brace();
             TickResult::Ok(())
         } else {
@@ -325,33 +334,33 @@ impl<
                 self.token = while_token;
             }
             None => {
-                self.token += 1;
+                self.advance_token();
             }
         }
         TickResult::Ok(())
     }
 
     fn parse_expr<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
-        match self.tokens.tokens[self.token] {
+        match self.current_token() {
             Token::True => {
-                self.token += 1;
+                self.advance_token();
                 self.malloc_boolean(true)
             }
             Token::False => {
-                self.token += 1;
+                self.advance_token();
                 self.malloc_boolean(false)
             }
             Token::Number(n) => {
-                self.token += 1;
+                self.advance_token();
                 self.malloc_number(&n)
             }
             Token::String(s) => {
-                self.token += 1;
+                self.advance_token();
                 self.malloc_string(&s)
             }
             Token::Symbol(s) => {
                 println!("Looking up symbol {s:?}");
-                self.token += 1;
+                self.advance_token();
                 match self.stack.look_up(Variable(s)) {
                     Some(value) => {
                         let mut buffer = [0; 10];
@@ -363,11 +372,11 @@ impl<
                 }
             }
             Token::Input => {
-                self.token += 1;
+                self.advance_token();
                 self.parse_input(io)
             }
             Token::OpenParen => {
-                self.token += 1;
+                self.advance_token();
                 self.parse_operation(io)
             }
             _ => TickResult::Err(TickError::TokensExhausted),
@@ -378,15 +387,15 @@ impl<
         match self.parse_expr(io) {
             TickResult::Finished => panic!("Program ended too soon."),
             TickResult::Ok(value1) => {
-                let op = self.tokens.tokens[self.token];
-                match self.tokens.tokens[self.token] {
+                let op = self.current_token();
+                match self.current_token() {
                     Token::And | Token::Or | Token::Plus | Token::Minus | Token::Times | Token::Divide | Token::Equal | Token::LessThan | Token::GreaterThan => {
-                        self.token += 1;
+                        self.advance_token();
                         match self.parse_expr(io) {
                             TickResult::Ok(value2) => {
-                                match self.tokens.tokens[self.token] {
+                                match self.current_token() {
                                     Token::CloseParen => {
-                                        self.token += 1;
+                                        self.advance_token();
                                         self.do_arithmetic(value1, value2, op)
                                     }
                                     _ => TickResult::Err(TickError::UnmatchedParen)
@@ -483,9 +492,9 @@ impl<
     }
 
     fn parse_input<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
-        match self.tokens.tokens[self.token] {
+        match self.current_token() {
             Token::OpenParen => {
-                self.token += 1;
+                self.advance_token();
                 match self.parse_expr(io) {
                     TickResult::Ok(v) => match self.print_value(&v, io) {
                         TickResult::Ok(_) => {}
@@ -499,9 +508,9 @@ impl<
                     TickResult::Err(e) => return TickResult::Err(e),
                     TickResult::Finished => panic!("Program ended too soon."),
                 }
-                match self.tokens.tokens[self.token] {
+                match self.current_token() {
                     Token::CloseParen => {
-                        self.token += 1;
+                        self.advance_token();
                         return TickResult::AwaitInput;
                     }
                     _ => return TickResult::Err(TickError::UnmatchedParen)
