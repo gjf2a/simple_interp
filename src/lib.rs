@@ -370,7 +370,10 @@ impl<
                 self.advance_token();
                 self.parse_operation(io)
             }
-            _ => TickResult::Err(TickError::TokensExhausted),
+            _ => {
+                panic!("Can't process {:?}", self.current_token());
+                TickResult::Err(TickError::TokensExhausted)
+            }
         }
     }
 
