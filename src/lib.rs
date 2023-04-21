@@ -332,6 +332,7 @@ impl<
         match self.brace_stacker.closing_brace() {
             Some(while_token) => {
                 self.token = while_token;
+                println!("===> heading back to `while` token ({:?}) {while_token}", self.current_token());
             }
             None => {
                 self.advance_token();
