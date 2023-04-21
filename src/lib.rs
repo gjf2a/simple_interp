@@ -720,7 +720,10 @@ impl Value {
                 buffer[end] = '\n' as u8;
                 TickResult::Ok(end + 1)
             }
-            ValueType::Float => todo!(),
+            ValueType::Float => match heap.load(self.location) {
+                HeapResult::Ok(w) => f64_into_buffer(f64::from_bits(w), buffer),
+                HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+            }
             ValueType::Boolean => {
                 match heap.load(self.location) {
                     HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
@@ -820,6 +823,10 @@ pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> TickResult<usize> {
     buffer[i] = '\n' as u8;
 
     TickResult::Ok(i+1)
+}
+
+pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
+    todo!()
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
