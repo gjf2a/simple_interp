@@ -425,7 +425,11 @@ impl<
                         let v2 = self.load_int(value2.location);
                         self.perform_binary_op(v1, v2, op, ValueType::Integer, make_unsigned_from)
                     }
-                    ValueType::Float => todo!(),
+                    ValueType::Float => {
+                        let v1 = v1 as f64;
+                        let v2 = self.load_float(value2.location);
+                        self.perform_binary_op(v1, v2, op, ValueType::Float, f64::to_bits)
+                    }
                     ValueType::String => self.string_not_string(op), 
                     ValueType::Boolean => todo!(),
                 }
@@ -437,7 +441,10 @@ impl<
                         let v2 = self.load_float(value2.location);
                         self.perform_binary_op(v1, v2, op, ValueType::Float, f64::to_bits)
                     }
-                    ValueType::Integer => todo!(),
+                    ValueType::Integer => {
+                        let v2 = self.load_int(value2.location) as f64;
+                        self.perform_binary_op(v1, v2, op, ValueType::Float, f64::to_bits)
+                    }
                     ValueType::String => self.string_not_string(op),
                     ValueType::Boolean => todo!(),
                 }
