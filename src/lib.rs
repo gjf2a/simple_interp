@@ -385,7 +385,7 @@ impl<
             TickResult::Finished => panic!("Program ended too soon."),
             TickResult::Ok(value1) => {
                 let op = self.current_token();
-                match self.current_token() {
+                match op {
                     Token::And | Token::Or | Token::Plus | Token::Minus | Token::Times | Token::Divide | Token::Equal | Token::LessThan | Token::GreaterThan => {
                         self.advance_token();
                         match self.parse_expr(io) {
@@ -403,7 +403,7 @@ impl<
                             TickResult::Finished => panic!("Program ended too soon."),
                         }
                     }
-                    _ => panic!("Missing operator: {:?}", self.current_token())//TickResult::Err(TickError::MissingBinaryOperator)
+                    _ => panic!("Missing operator: {:?}", op)//TickResult::Err(TickError::MissingBinaryOperator)
                 }
             }
             TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
