@@ -69,7 +69,7 @@ pub enum TickError {
     HeapIssue(HeapError),
     UnmatchedParen,
     SyntaxError,
-    TokensExhausted,
+    UnprocessableToken,
     UnassignedVariable,
     NestedInput,
     MissingBinaryOperator,
@@ -370,9 +370,12 @@ impl<
                 self.advance_token();
                 self.parse_operation(io)
             }
+            Token::Not => {
+                self.advance_token();
+                self.parse_not(io)
+            }
             _ => {
-                panic!("Can't process {:?}", self.current_token());
-                TickResult::Err(TickError::TokensExhausted)
+                TickResult::Err(TickError::UnprocessableToken)
             }
         }
     }
@@ -472,6 +475,26 @@ impl<
                 }
             }
             ValueType::Boolean => todo!(),
+        }
+    }
+
+    fn parse_not<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
+        match self.parse_expr(io) {
+            TickResult::Ok(arg) => {
+                match self.current_token() {
+                    Token::CloseParen => {
+                        self.advance_token();
+                        match arg.t {
+                            ValueType::Boolean => self.malloc_boolean(!self.load_boolean(arg.location)),
+                            _ => TickResult::Err(TickError::NeedsBoolean)
+                        }
+                    }
+                    _ => TickResult::Err(TickError::UnmatchedParen)
+                }
+            }
+            TickResult::Finished => panic!("Program ended too soon."),
+            TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
+            TickResult::Err(e) => TickResult::Err(e),
         }
     }
 
