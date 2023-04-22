@@ -1,4 +1,4 @@
-//#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -485,19 +485,15 @@ impl<
     fn perform_binary_op<N:Add<Output=N> + Sub<Output=N> + Mul<Output=N> + Div<Output=N> + PartialOrd + PartialEq, F:Fn(N) -> u64>(&mut self, v1: N, v2: N, op: Token<MAX_LITERAL_CHARS>, vt: ValueType, encoder_u64: F) -> TickResult<Value> {
         match op {
             Token::Plus => {
-                println!("malloc add");
                 self.malloc_numeric_value(encoder_u64(v1 + v2), vt)
             }
             Token::Minus => {
-                println!("malloc sub");
                 self.malloc_numeric_value(encoder_u64(v1 - v2), vt)
             }
             Token::Times => {
-                println!("malloc mul");
                 self.malloc_numeric_value(encoder_u64(v1 * v2), vt)
             }
             Token::Divide => {
-                println!("malloc div");
                 self.malloc_numeric_value(encoder_u64(v1 / v2), vt)
             }
             Token::LessThan => {
@@ -531,9 +527,7 @@ impl<
         match self.parse_expr(io) {
             TickResult::Ok(arg) => {
                 match arg.t {
-                    ValueType::Integer => {
-                        println!("malloc negated: {}", -self.load_int(arg.location));
-                        self.malloc_numeric_value(make_unsigned_from(-self.load_int(arg.location)), ValueType::Integer)},
+                    ValueType::Integer => self.malloc_numeric_value(make_unsigned_from(-self.load_int(arg.location)), ValueType::Integer),
                     ValueType::Float => self.malloc_numeric_value((-self.load_float(arg.location)).to_bits(), ValueType::Float),
                     _ => TickResult::Err(TickError::NotNegateable)
                 }
@@ -545,10 +539,7 @@ impl<
     }
 
     fn load_int(&self, p: Pointer) -> i64 {
-        //make_signed_from(self.heap.load(p).unwrap())
-        let value = make_signed_from(self.heap.load(p).unwrap());
-        println!("Loaded {value} from {p:?}");
-        value
+        make_signed_from(self.heap.load(p).unwrap())
     }
 
     fn load_boolean(&self, p: Pointer) -> bool {
@@ -589,7 +580,6 @@ impl<
     }
 
     fn malloc_boolean(&mut self, value: bool) -> TickResult<Value> {
-        println!("storing boolean {value}");
         let value = if value {u64::MAX} else {0};
         self.malloc_numeric_value(value, ValueType::Boolean)
     }
@@ -597,11 +587,9 @@ impl<
     fn malloc_number(&mut self, n: &[char]) -> TickResult<Value> {
         let (t, value) = if n.contains(&'.') {
             let float_val = parse_float_from(n);
-            println!("malloc-ing {float_val}");
             (ValueType::Float, float_val.to_bits())
         } else {
             let int_val = parse_int_from(n);
-            println!("malloc-ing {int_val}");
             (ValueType::Integer, int_val)
         };
         self.malloc_numeric_value(value, t)
@@ -610,8 +598,7 @@ impl<
     fn malloc_numeric_value(&mut self, value: u64, t: ValueType) -> TickResult<Value> {
         match self.heap.malloc(1, &self.stack) {
             HeapResult::Ok(p) => match self.heap.store(p, value) {
-                HeapResult::Ok(_) => {
-                    println!("Storing {value} at {p:?}");TickResult::Ok(Value { location: p, t })},
+                HeapResult::Ok(_) => TickResult::Ok(Value { location: p, t }),
                 HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
             },
             HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
@@ -625,7 +612,6 @@ impl<
                 let mut p = Some(location);
                 for i in 0..num_chars {
                     let pt = p.unwrap();
-                    println!("Storing string char {} at {pt:?}", s[i] as u64);
                     match self.heap.store(pt, s[i] as u64) {
                         HeapResult::Ok(_) => {
                             p = pt.next();
