@@ -625,6 +625,7 @@ impl<
                 let mut p = Some(location);
                 for i in 0..num_chars {
                     let pt = p.unwrap();
+                    println!("Storing string char {} at {pt:?}", s[i] as u64);
                     match self.heap.store(pt, s[i] as u64) {
                         HeapResult::Ok(_) => {
                             p = pt.next();
