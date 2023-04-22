@@ -482,9 +482,10 @@ impl<
         }
     }
 
-    fn perform_binary_op<N:Add<Output=N> + Sub<Output=N> + Mul<Output=N> + Div<Output=N> + PartialOrd + PartialEq, F:Fn(N) -> u64>(&mut self, v1: N, v2: N, op: Token<MAX_LITERAL_CHARS>, vt: ValueType, encoder_u64: F) -> TickResult<Value> {
+    fn perform_binary_op<N:std::fmt::Display + Copy + Add<Output=N> + Sub<Output=N> + Mul<Output=N> + Div<Output=N> + PartialOrd + PartialEq, F:Fn(N) -> u64>(&mut self, v1: N, v2: N, op: Token<MAX_LITERAL_CHARS>, vt: ValueType, encoder_u64: F) -> TickResult<Value> {
         match op {
             Token::Plus => {
+                println!("{v1} + {v2} = {}", v1 + v2);
                 self.malloc_numeric_value(encoder_u64(v1 + v2), vt)
             }
             Token::Minus => {
