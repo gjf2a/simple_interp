@@ -630,6 +630,7 @@ impl<
     }
 
     fn print_value<I: InterpreterOutput>(&self, v: &Value, io: &mut I) -> TickResult<()> {
+        assert!(OUTPUT_WIDTH > 3);
         let mut output_buffer = [0; OUTPUT_WIDTH];
         match v.output::<G>(&self.heap, &mut output_buffer) {
             TickResult::Ok(num_words) => {
