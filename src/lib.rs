@@ -607,6 +607,7 @@ impl<
     }
 
     fn malloc_numeric_value(&mut self, value: u64, t: ValueType) -> TickResult<Value> {
+        println!("Storing {value} at {p:?}");
         match self.heap.malloc(1, &self.stack) {
             HeapResult::Ok(p) => match self.heap.store(p, value) {
                 HeapResult::Ok(_) => TickResult::Ok(Value { location: p, t }),
