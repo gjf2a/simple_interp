@@ -485,15 +485,19 @@ impl<
     fn perform_binary_op<N:Add<Output=N> + Sub<Output=N> + Mul<Output=N> + Div<Output=N> + PartialOrd + PartialEq, F:Fn(N) -> u64>(&mut self, v1: N, v2: N, op: Token<MAX_LITERAL_CHARS>, vt: ValueType, encoder_u64: F) -> TickResult<Value> {
         match op {
             Token::Plus => {
+                println!("malloc add");
                 self.malloc_numeric_value(encoder_u64(v1 + v2), vt)
             }
             Token::Minus => {
+                println!("malloc sub");
                 self.malloc_numeric_value(encoder_u64(v1 - v2), vt)
             }
             Token::Times => {
+                println!("malloc mul");
                 self.malloc_numeric_value(encoder_u64(v1 * v2), vt)
             }
             Token::Divide => {
+                println!("malloc div");
                 self.malloc_numeric_value(encoder_u64(v1 / v2), vt)
             }
             Token::LessThan => {
@@ -527,7 +531,9 @@ impl<
         match self.parse_expr(io) {
             TickResult::Ok(arg) => {
                 match arg.t {
-                    ValueType::Integer => self.malloc_numeric_value(make_unsigned_from(-self.load_int(arg.location)), ValueType::Integer),
+                    ValueType::Integer => {
+                        println!("malloc negated: {}", -self.load_int(arg.location));
+                        self.malloc_numeric_value(make_unsigned_from(-self.load_int(arg.location)), ValueType::Integer)},
                     ValueType::Float => self.malloc_numeric_value((-self.load_float(arg.location)).to_bits(), ValueType::Float),
                     _ => TickResult::Err(TickError::NotNegateable)
                 }
@@ -590,9 +596,12 @@ impl<
     fn malloc_number(&mut self, n: &[char]) -> TickResult<Value> {
         let (t, value) = if n.contains(&'.') {
             let float_val = parse_float_from(n);
+            println!("malloc-ing {float_val}");
             (ValueType::Float, float_val.to_bits())
         } else {
-            (ValueType::Integer, parse_int_from(n))
+            let int_val = parse_int_from(n);
+            println!("malloc-ing {int_val}");
+            (ValueType::Integer, int_val)
         };
         self.malloc_numeric_value(value, t)
     }
@@ -600,9 +609,7 @@ impl<
     fn malloc_numeric_value(&mut self, value: u64, t: ValueType) -> TickResult<Value> {
         match self.heap.malloc(1, &self.stack) {
             HeapResult::Ok(p) => match self.heap.store(p, value) {
-                HeapResult::Ok(_) => {
-                    println!("Storing {value} at {p:?}");
-                    TickResult::Ok(Value { location: p, t })},
+                HeapResult::Ok(_) => TickResult::Ok(Value { location: p, t }),
                 HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
             },
             HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
