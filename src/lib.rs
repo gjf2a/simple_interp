@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+//#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -597,7 +597,9 @@ impl<
     fn malloc_numeric_value(&mut self, value: u64, t: ValueType) -> TickResult<Value> {
         match self.heap.malloc(1, &self.stack) {
             HeapResult::Ok(p) => match self.heap.store(p, value) {
-                HeapResult::Ok(_) => TickResult::Ok(Value { location: p, t }),
+                HeapResult::Ok(_) => {
+                    println!("Storing {value} at {p:?}");
+                    TickResult::Ok(Value { location: p, t })},
                 HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
             },
             HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
