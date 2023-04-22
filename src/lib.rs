@@ -489,12 +489,15 @@ impl<
                 self.malloc_numeric_value(encoder_u64(v1 + v2), vt)
             }
             Token::Minus => {
+                println!("{v1} - {v2} = {}", v1 - v2);
                 self.malloc_numeric_value(encoder_u64(v1 - v2), vt)
             }
             Token::Times => {
+                println!("{v1} * {v2} = {}", v1 * v2);
                 self.malloc_numeric_value(encoder_u64(v1 * v2), vt)
             }
             Token::Divide => {
+                println!("{v1} / {v2} = {}", v1 / v2);
                 self.malloc_numeric_value(encoder_u64(v1 / v2), vt)
             }
             Token::LessThan => {
@@ -826,8 +829,15 @@ pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> TickResult<usize> {
 
 pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
     println!("Initial value: {value}");
+    let start = if value < 0.0 {
+        buffer[0] = '-' as u8;
+        value = -value;
+        1
+    } else {
+        0
+    };
     println!("First half: {}", value as i64);
-    let mut bytes = i64_into_buffer(value as i64, buffer).unwrap();
+    let mut bytes = start + i64_into_buffer(value as i64, &mut buffer[start..]).unwrap();
     buffer[bytes - 1] = '.' as u8;
     value -= (value as i64) as f64;
     let mut shifts = 0;
@@ -1204,6 +1214,11 @@ mod tests {
         let bytes = f64_into_buffer(f, &mut buffer).unwrap();
         assert_eq!(bytes, buffer.len());
         assert_eq!(format!("{buffer:?}"), "[49, 50, 51, 52, 46, 53, 54, 55, 56, 57, 48, 10]");
+
+        let f = -43.21;
+        let mut buffer = [0; 7];
+        let bytes = f64_into_buffer(f, &mut buffer).unwrap();assert_eq!(bytes, buffer.len());
+        assert_eq!(format!("{buffer:?}"), "[45, 52, 51, 46, 50, 49, 10]");
     }
 
     #[test]
