@@ -539,7 +539,10 @@ impl<
     }
 
     fn load_int(&self, p: Pointer) -> i64 {
-        make_signed_from(self.heap.load(p).unwrap())
+        //make_signed_from(self.heap.load(p).unwrap())
+        let value = make_signed_from(self.heap.load(p).unwrap());
+        println!("Loaded {value} from {p:?}");
+        value
     }
 
     fn load_boolean(&self, p: Pointer) -> bool {
