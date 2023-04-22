@@ -590,6 +590,7 @@ impl<
 
     fn malloc_boolean(&mut self, value: bool) -> TickResult<Value> {
         let value = if value {u64::MAX} else {0};
+        println!("storing boolean {value}");
         self.malloc_numeric_value(value, ValueType::Boolean)
     }
 
