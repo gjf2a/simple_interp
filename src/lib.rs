@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+//#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -824,12 +824,15 @@ pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> TickResult<usize> {
 }
 
 pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
+    println!("Initial value: {value}");
+    println!("First half: {}", value as i64);
     let mut bytes = i64_into_buffer(value as i64, buffer).unwrap();
     buffer[bytes - 1] = '.' as u8;
     value -= (value as i64) as f64;
     let mut shifts = 0;
     let mut found_non_zero = false;
     let mut num_leading_zeros = 0;
+    println!("second half: {value}...");
     while (value as i64) as f64 != value && shifts + bytes + 1 < buffer.len() {
         value *= 10.0;
         if !found_non_zero {
@@ -841,6 +844,7 @@ pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
         }
         shifts += 1;
     }
+    println!("shifts: {shifts}");
     for i in 0..num_leading_zeros {
         buffer[bytes + i] = '0' as u8;
     }
