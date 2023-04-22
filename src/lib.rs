@@ -823,7 +823,6 @@ pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> TickResult<usize> {
 }
 
 pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
-    let original = value;
     let mut bytes = i64_into_buffer(value as i64, buffer).unwrap();
     buffer[bytes - 1] = '.' as u8;
     value -= (value as i64) as f64;
@@ -845,10 +844,12 @@ pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
         buffer[bytes + i] = '0' as u8;
     }
     bytes += num_leading_zeros;
-    if bytes + 2 >= buffer.len() {
-        panic!("original: {original} {buffer:?}");
+    if bytes + 2 < buffer.len() {
+        bytes += i64_into_buffer(value as i64, &mut buffer[bytes..]).unwrap();
+    } else {
+        buffer[buffer.len() - 1] = '\n' as u8;
+        bytes = buffer.len();
     }
-    bytes += i64_into_buffer(value as i64, &mut buffer[bytes..]).unwrap();
     TickResult::Ok(bytes)
 }
 
@@ -1210,10 +1211,11 @@ mod tests {
 
     #[test]
     fn test_zero_float_out() {
-        let f = 152.0;
-        let mut buffer = [0; 30];
+        let f = 0.0000001;
+        let mut buffer = [0; 7];
         let bytes = f64_into_buffer(f, &mut buffer).unwrap();
-        println!("{buffer:?}");
+        assert_eq!(bytes, buffer.len());
+        assert_eq!(format!("{buffer:?}"), "[48, 46, 48, 48, 48, 48, 10]");
     }
 
     #[test]
