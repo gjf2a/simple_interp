@@ -1082,7 +1082,8 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize>
 }
 
 fn is_number(chars: &[char]) -> bool {
-    chars[0].is_numeric()
+    chars.len() > 0 
+        && chars[0].is_numeric()
         && chars.iter().filter(|c| **c == '.').count() <= 1
         && chars.iter().all(|c| c.is_numeric() || *c == '.')
 }
@@ -1200,5 +1201,14 @@ mod tests {
         let bytes = f64_into_buffer(f, &mut buffer).unwrap();
         assert_eq!(bytes, 20);
         assert_eq!(format!("{buffer:?}"), "[51, 46, 48, 52, 49, 56, 51, 57, 54, 49, 56, 57, 50, 57, 52, 48, 51, 50, 52, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]");
+    }
+
+    #[test]
+    fn test_is_number() {
+        assert!(!is_number(&[]));
+        assert!(!is_number(&['1', '.', '0', '.', '1']));
+
+        assert!(is_number(&['1', '0']));
+        assert!(is_number(&['1', '.', '0', '1']));
     }
 }
