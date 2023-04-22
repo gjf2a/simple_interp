@@ -355,11 +355,7 @@ impl<
             Token::Symbol(s) => {
                 self.advance_token();
                 match self.stack.look_up(Variable(s)) {
-                    Some(value) => {
-                        let mut buffer = [0; 10];
-                        value.output(&self.heap, &mut buffer).unwrap();
-                        TickResult::Ok(value)
-                    }
+                    Some(value) => TickResult::Ok(value),
                     None => TickResult::Err(TickError::UnassignedVariable)
                 }
             }
