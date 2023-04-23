@@ -647,7 +647,7 @@ impl<
                     }
                 }
 
-                TickResult::Ok(Value {
+                self.variables.push_value(Value {
                     location,
                     t: ValueType::String,
                 });
