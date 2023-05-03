@@ -134,6 +134,9 @@ impl<
     }
 
     pub fn provide_input(&mut self, input: &[char]) {
+        if !self.blocked_on_input() {
+            panic!("Called provide_input() when no input was expected.");
+        }
         let var = self.pending_assignment.unwrap();
         if is_number(input) {
             self.malloc_number(input)
@@ -142,6 +145,7 @@ impl<
         }.unwrap();
         let value = self.variables.pop_value();
         self.variables.assign(var, value);
+        self.pending_assignment = None;
     }
 
     pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
