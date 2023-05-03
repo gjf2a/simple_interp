@@ -14,6 +14,7 @@ use core::option::Option::{None, Some};
 use core::cmp::min;
 
 use bare_metal_map::BareMetalMap;
+use bare_metal_queue::BareMetalStack;
 use gc_headers::{GarbageCollectingHeap, HeapResult, HeapError, Pointer, Tracer};
 
 pub trait InterpreterOutput {
@@ -32,7 +33,7 @@ pub struct Interpreter<
     tokens: Tokenized<MAX_TOKENS, MAX_LITERAL_CHARS>,
     token: usize,
     heap: G,
-    stack: StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS>,
+    variables: VarTracer<MAX_LOCAL_VARS, MAX_LITERAL_CHARS, STACK_DEPTH>,
     pending_assignment: Option<Variable<MAX_LITERAL_CHARS>>,
     brace_stacker: BraceStacker<STACK_DEPTH>,
 }
@@ -106,7 +107,7 @@ impl<
             tokens,
             token: 0,
             heap: G::new(),
-            stack: StackFrame::new(),
+            variables: VarTracer::new(),
             pending_assignment: None,
             brace_stacker: BraceStacker::new(),
         }
@@ -134,12 +135,13 @@ impl<
 
     pub fn provide_input(&mut self, input: &[char]) {
         let var = self.pending_assignment.unwrap();
-        let value = if is_number(input) {
+        if is_number(input) {
             self.malloc_number(input)
         } else {
             self.malloc_string(input)
         }.unwrap();
-        self.stack.assign(var, value);
+        let value = self.variables.pop_value();
+        self.variables.assign(var, value);
     }
 
     pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
@@ -184,12 +186,15 @@ impl<
             Token::OpenParen => {
                 self.advance_token();
                 match self.parse_expr(io) {
-                    TickResult::Ok(v) => match self.print_value(&v, io) {
-                        TickResult::Ok(_) => {}
-                        TickResult::Err(e) => return TickResult::Err(e),
-                        TickResult::AwaitInput => panic!("Input to print not implemented"),
-                        TickResult::Finished => panic!("Program ended too soon."),
-                    },
+                    TickResult::Ok(_) => {
+                        let value = self.variables.pop_value();
+                        match self.print_value(&value, io) {
+                            TickResult::Ok(_) => {}
+                            TickResult::Err(e) => return TickResult::Err(e),
+                            TickResult::AwaitInput => panic!("Input to print not implemented"),
+                            TickResult::Finished => panic!("Program ended too soon."),
+                        }
+                    }
                     TickResult::AwaitInput => {
                         panic!("Input to print not implemented");
                     }
@@ -213,8 +218,9 @@ impl<
             Token::Assign => {
                 self.advance_token();
                 match self.parse_expr(io) {
-                    TickResult::Ok(value) => {
-                        self.stack.assign(Variable(s), value);
+                    TickResult::Ok(_) => {
+                        let value = self.variables.pop_value();
+                        self.variables.assign(Variable(s), value);
                         TickResult::Ok(())
                     }
                     TickResult::Err(e) => return TickResult::Err(e),
@@ -238,7 +244,8 @@ impl<
             TickResult::Finished => panic!("Program ended too soon."),
             TickResult::AwaitInput => return TickResult::Err(TickError::NestedInput),
             TickResult::Err(e) => return TickResult::Err(e),
-            TickResult::Ok(value) => {
+            TickResult::Ok(_) => {
+                let value = self.variables.pop_value();
                 match value.t {
                     ValueType::Boolean => {
                         if self.load_boolean(value.location) {
@@ -269,7 +276,8 @@ impl<
             TickResult::Finished => panic!("Program ended too soon."),
             TickResult::AwaitInput => return TickResult::Err(TickError::NestedInput),
             TickResult::Err(e) => return TickResult::Err(e),
-            TickResult::Ok(value) => {
+            TickResult::Ok(_) => {
+                let value = self.variables.pop_value();
                 match value.t {
                     ValueType::Boolean => {
                         if self.load_boolean(value.location) {
@@ -338,7 +346,7 @@ impl<
         TickResult::Ok(())
     }
 
-    fn parse_expr<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
+    fn parse_expr<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
         match self.current_token() {
             Token::True => {
                 self.advance_token();
@@ -358,11 +366,10 @@ impl<
             }
             Token::Symbol(s) => {
                 self.advance_token();
-                match self.stack.look_up(Variable(s)) {
+                match self.variables.look_up(Variable(s)) {
                     Some(value) => {
-                        let mut buffer = [0; 10];
-                        value.output(&self.heap, &mut buffer).unwrap();
-                        TickResult::Ok(value)
+                        self.variables.push_value(value);
+                        TickResult::Ok(())
                     }
                     None => TickResult::Err(TickError::UnassignedVariable)
                 }
@@ -389,16 +396,18 @@ impl<
         }
     }
 
-    fn parse_operation<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
+    fn parse_operation<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
         match self.parse_expr(io) {
             TickResult::Finished => panic!("Program ended too soon."),
-            TickResult::Ok(value1) => {
+            TickResult::Ok(_) => {
                 let op = self.current_token();
                 match op {
                     Token::And | Token::Or | Token::Plus | Token::Minus | Token::Times | Token::Divide | Token::Equal | Token::LessThan | Token::GreaterThan => {
                         self.advance_token();
                         match self.parse_expr(io) {
-                            TickResult::Ok(value2) => {
+                            TickResult::Ok(_) => {
+                                let value2 = self.variables.pop_value();
+                                let value1 = self.variables.pop_value();
                                 match self.current_token() {
                                     Token::CloseParen => {
                                         self.advance_token();
@@ -412,7 +421,7 @@ impl<
                             TickResult::Finished => panic!("Program ended too soon."),
                         }
                     }
-                    _ => panic!("Missing operator: {:?}", op)//TickResult::Err(TickError::MissingBinaryOperator)
+                    _ => TickResult::Err(TickError::MissingBinaryOperator)
                 }
             }
             TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
@@ -420,7 +429,7 @@ impl<
         }
     }
 
-    fn do_arithmetic(&mut self, value1: Value, value2: Value, op: Token<MAX_LITERAL_CHARS>) -> TickResult<Value> {
+    fn do_arithmetic(&mut self, value1: Value, value2: Value, op: Token<MAX_LITERAL_CHARS>) -> TickResult<()> {
         match value1.t {
             ValueType::Integer => {
                 let v1 = self.load_int(value1.location);
@@ -482,7 +491,7 @@ impl<
         }
     }
 
-    fn string_not_string(&mut self, op: Token<MAX_LITERAL_CHARS>) -> TickResult<Value> {
+    fn string_not_string(&mut self, op: Token<MAX_LITERAL_CHARS>) -> TickResult<()> {
         if let Token::Equal = op {
             self.malloc_boolean(false)
         } else {
@@ -490,7 +499,7 @@ impl<
         }
     }
 
-    fn perform_binary_op<N:Add<Output=N> + Sub<Output=N> + Mul<Output=N> + Div<Output=N> + PartialOrd + PartialEq, F:Fn(N) -> u64>(&mut self, v1: N, v2: N, op: Token<MAX_LITERAL_CHARS>, vt: ValueType, encoder_u64: F) -> TickResult<Value> {
+    fn perform_binary_op<N:Copy + Add<Output=N> + Sub<Output=N> + Mul<Output=N> + Div<Output=N> + PartialOrd + PartialEq, F:Fn(N) -> u64>(&mut self, v1: N, v2: N, op: Token<MAX_LITERAL_CHARS>, vt: ValueType, encoder_u64: F) -> TickResult<()> {
         match op {
             Token::Plus => {
                 self.malloc_numeric_value(encoder_u64(v1 + v2), vt)
@@ -517,9 +526,10 @@ impl<
         }
     }
 
-    fn parse_not<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
+    fn parse_not<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
         match self.parse_expr(io) {
-            TickResult::Ok(arg) => {
+            TickResult::Ok(_) => {
+                let arg = self.variables.pop_value();
                 match arg.t {
                     ValueType::Boolean => self.malloc_boolean(!self.load_boolean(arg.location)),
                     _ => TickResult::Err(TickError::NeedsBoolean)
@@ -531,9 +541,10 @@ impl<
         }
     }
 
-    fn parse_negate<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
+    fn parse_negate<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
         match self.parse_expr(io) {
-            TickResult::Ok(arg) => {
+            TickResult::Ok(_) => {
+                let arg = self.variables.pop_value();
                 match arg.t {
                     ValueType::Integer => self.malloc_numeric_value(make_unsigned_from(-self.load_int(arg.location)), ValueType::Integer),
                     ValueType::Float => self.malloc_numeric_value((-self.load_float(arg.location)).to_bits(), ValueType::Float),
@@ -558,17 +569,20 @@ impl<
         f64::from_bits(self.heap.load(p).unwrap())
     }
 
-    fn parse_input<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<Value> {
+    fn parse_input<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
         match self.current_token() {
             Token::OpenParen => {
                 self.advance_token();
                 match self.parse_expr(io) {
-                    TickResult::Ok(v) => match self.print_value(&v, io) {
-                        TickResult::Ok(_) => {}
-                        TickResult::Err(e) => return TickResult::Err(e),
-                        TickResult::AwaitInput => panic!("Input within input not implemented"),
-                        TickResult::Finished => panic!("Program ended too soon."),
-                    },
+                    TickResult::Ok(_) => {
+                        let value = self.variables.pop_value();
+                        match self.print_value(&value, io) {
+                            TickResult::Ok(_) => {}
+                            TickResult::Err(e) => return TickResult::Err(e),
+                            TickResult::AwaitInput => panic!("Input within input not implemented"),
+                            TickResult::Finished => panic!("Program ended too soon."),
+                        }
+                    }
                     TickResult::AwaitInput => {
                         panic!("Input within input not implemented");
                     }
@@ -587,34 +601,38 @@ impl<
         }
     }
 
-    fn malloc_boolean(&mut self, value: bool) -> TickResult<Value> {
+    fn malloc_boolean(&mut self, value: bool) -> TickResult<()> {
         let value = if value {u64::MAX} else {0};
         self.malloc_numeric_value(value, ValueType::Boolean)
     }
 
-    fn malloc_number(&mut self, n: &[char]) -> TickResult<Value> {
+    fn malloc_number(&mut self, n: &[char]) -> TickResult<()> {
         let (t, value) = if n.contains(&'.') {
             let float_val = parse_float_from(n);
             (ValueType::Float, float_val.to_bits())
         } else {
-            (ValueType::Integer, parse_int_from(n))
+            let int_val = parse_int_from(n);
+            (ValueType::Integer, int_val)
         };
         self.malloc_numeric_value(value, t)
     }
 
-    fn malloc_numeric_value(&mut self, value: u64, t: ValueType) -> TickResult<Value> {
-        match self.heap.malloc(1, &self.stack) {
+    fn malloc_numeric_value(&mut self, value: u64, t: ValueType) -> TickResult<()> {
+        match self.heap.malloc(1, &self.variables) {
             HeapResult::Ok(p) => match self.heap.store(p, value) {
-                HeapResult::Ok(_) => TickResult::Ok(Value { location: p, t }),
+                HeapResult::Ok(_) => {
+                    self.variables.push_value(Value { location: p, t });
+                    TickResult::Ok(())
+                }
                 HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
             },
             HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
         }
     }
 
-    fn malloc_string(&mut self, s: &[char]) -> TickResult<Value> {
+    fn malloc_string(&mut self, s: &[char]) -> TickResult<()> {
         let num_chars = s.iter().take_while(|c| **c != '\0').count();
-        match self.heap.malloc(num_chars, &self.stack) {
+        match self.heap.malloc(num_chars, &self.variables) {
             HeapResult::Ok(location) => {
                 let mut p = Some(location);
                 for i in 0..num_chars {
@@ -628,16 +646,19 @@ impl<
                         }
                     }
                 }
-                TickResult::Ok(Value {
+
+                self.variables.push_value(Value {
                     location,
                     t: ValueType::String,
-                })
+                });
+                TickResult::Ok(())
             }
             HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
         }
     }
 
     fn print_value<I: InterpreterOutput>(&self, v: &Value, io: &mut I) -> TickResult<()> {
+        assert!(OUTPUT_WIDTH > 3);
         let mut output_buffer = [0; OUTPUT_WIDTH];
         match v.output::<G>(&self.heap, &mut output_buffer) {
             TickResult::Ok(num_words) => {
@@ -830,7 +851,14 @@ pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> TickResult<usize> {
 }
 
 pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
-    let mut bytes = i64_into_buffer(value as i64, buffer).unwrap();
+    let start = if value < 0.0 {
+        buffer[0] = '-' as u8;
+        value = -value;
+        1
+    } else {
+        0
+    };
+    let mut bytes = start + i64_into_buffer(value as i64, &mut buffer[start..]).unwrap();
     buffer[bytes - 1] = '.' as u8;
     value -= (value as i64) as f64;
     let mut shifts = 0;
@@ -851,7 +879,12 @@ pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
         buffer[bytes + i] = '0' as u8;
     }
     bytes += num_leading_zeros;
-    bytes += i64_into_buffer(value as i64, &mut buffer[bytes..]).unwrap();
+    if bytes + 2 < buffer.len() {
+        bytes += i64_into_buffer(value as i64, &mut buffer[bytes..]).unwrap();
+    } else {
+        buffer[buffer.len() - 1] = '\n' as u8;
+        bytes = buffer.len();
+    }
     TickResult::Ok(bytes)
 }
 
@@ -866,23 +899,28 @@ impl<const MAX_LITERAL_CHARS: usize> Default for Variable<MAX_LITERAL_CHARS> {
 }
 
 #[derive(Copy, Clone, Default, Debug)]
-pub struct StackFrame<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> {
+pub struct VarTracer<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize> {
     vars: BareMetalMap<Variable<MAX_LITERAL_CHARS>, Value, MAX_LOCAL_VARS>,
+    expr_stack: BareMetalStack<Value, STACK_DEPTH>,
 }
 
-impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> Tracer for StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS> {
+impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize> Tracer for VarTracer<MAX_LOCAL_VARS, MAX_LITERAL_CHARS, STACK_DEPTH> {
     // If I ever add structs or arrays, this will need to be modified
     // to trace out those internal pointers as well.
     fn trace(&self, blocks_used: &mut [bool]) {
         for i in 0..self.vars.len() {
             blocks_used[self.vars.get_at(i).unwrap().block_num()] = true;
         }
+
+        for i in 0..self.expr_stack.len() {
+            blocks_used[self.expr_stack[i].block_num()] = true;
+        }
     }
 }
 
-impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> StackFrame<MAX_LOCAL_VARS, MAX_LITERAL_CHARS> {
+impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize> VarTracer<MAX_LOCAL_VARS, MAX_LITERAL_CHARS, STACK_DEPTH> {
     pub fn new() -> Self {
-        Self {vars: BareMetalMap::new()}
+        Self {vars: BareMetalMap::new(), expr_stack: BareMetalStack::new()}
     }
 
     fn assign(&mut self, variable: Variable<MAX_LITERAL_CHARS>, value: Value) {
@@ -891,6 +929,14 @@ impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize> StackFrame<MAX
 
     fn look_up(&self, variable: Variable<MAX_LITERAL_CHARS>) -> Option<Value> {
         self.vars.get(variable)
+    }
+
+    fn push_value(&mut self, v: Value) {
+        self.expr_stack.push(v);
+    }
+
+    fn pop_value(&mut self) -> Value {
+        self.expr_stack.pop()
     }
 } 
 
@@ -1090,7 +1136,8 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize>
 }
 
 fn is_number(chars: &[char]) -> bool {
-    chars[0].is_numeric()
+    chars.len() > 0 
+        && chars[0].is_numeric()
         && chars.iter().filter(|c| **c == '.').count() <= 1
         && chars.iter().all(|c| c.is_numeric() || *c == '.')
 }
@@ -1199,6 +1246,11 @@ mod tests {
         let bytes = f64_into_buffer(f, &mut buffer).unwrap();
         assert_eq!(bytes, buffer.len());
         assert_eq!(format!("{buffer:?}"), "[49, 50, 51, 52, 46, 53, 54, 55, 56, 57, 48, 10]");
+
+        let f = -43.21;
+        let mut buffer = [0; 7];
+        let bytes = f64_into_buffer(f, &mut buffer).unwrap();assert_eq!(bytes, buffer.len());
+        assert_eq!(format!("{buffer:?}"), "[45, 52, 51, 46, 50, 49, 10]");
     }
 
     #[test]
@@ -1208,5 +1260,23 @@ mod tests {
         let bytes = f64_into_buffer(f, &mut buffer).unwrap();
         assert_eq!(bytes, 20);
         assert_eq!(format!("{buffer:?}"), "[51, 46, 48, 52, 49, 56, 51, 57, 54, 49, 56, 57, 50, 57, 52, 48, 51, 50, 52, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]");
+    }
+
+    #[test]
+    fn test_zero_float_out() {
+        let f = 0.0000001;
+        let mut buffer = [0; 7];
+        let bytes = f64_into_buffer(f, &mut buffer).unwrap();
+        assert_eq!(bytes, buffer.len());
+        assert_eq!(format!("{buffer:?}"), "[48, 46, 48, 48, 48, 48, 10]");
+    }
+
+    #[test]
+    fn test_is_number() {
+        assert!(!is_number(&[]));
+        assert!(!is_number(&['1', '.', '0', '.', '1']));
+
+        assert!(is_number(&['1', '0']));
+        assert!(is_number(&['1', '.', '0', '1']));
     }
 }

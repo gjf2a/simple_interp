@@ -8,14 +8,20 @@ version = "0.1.0"
 source = "git+https://github.com/gjf2a/bare_metal_map#91c0d594fa0d70c51ca2aa769302ee79f23e45a9"
 
 [[package]]
+name = "bare_metal_queue"
+version = "0.2.1"
+source = "git+https://github.com/gjf2a/bare_metal_queue#1bb258ebd3bf25e688ec10eafeeffdf421992bed"
+
+[[package]]
 name = "gc_headers"
 version = "0.1.0"
-source = "git+https://github.com/gjf2a/gc_headers#1296d0740e5826d98f08f410efd012c10d07b97d"
+source = "git+https://github.com/gjf2a/gc_headers#faf1ce8c11a0f6693f539bae15d75cd7a36a3c5e"
 
 [[package]]
 name = "simple_interp"
 version = "0.1.0"
 dependencies = [
  "bare_metal_map",
+ "bare_metal_queue",
  "gc_headers",
 ]
