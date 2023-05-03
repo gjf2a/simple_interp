@@ -67,6 +67,7 @@ impl<T> TickResult<T> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TickError {
     HeapIssue(HeapError),
+    TickWhileAwaitingInput,
     NotNegateable,
     UnmatchedParen,
     SyntaxError,
@@ -142,6 +143,9 @@ impl<
     }
 
     pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
+        if self.blocked_on_input() {
+            return TickResult::Err(TickError::TickWhileAwaitingInput);
+        }
         if self.token == self.tokens.num_tokens {
             return TickResult::Finished;
         }
