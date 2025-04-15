@@ -7,15 +7,15 @@
 // cargo update
 // cargo build
 
-use core::ops::{FnOnce, Add, Sub, Mul, Div};
+use core::cmp::min;
 use core::default::Default;
+use core::ops::{Add, Div, FnOnce, Mul, Sub};
 use core::option::Option;
 use core::option::Option::{None, Some};
-use core::cmp::min;
 
 use bare_metal_map::BareMetalMap;
 use bare_metal_queue::BareMetalStack;
-use gc_headers::{GarbageCollectingHeap, HeapResult, HeapError, Pointer, Tracer};
+use gc_headers::{GarbageCollectingHeap, HeapError, Pointer, Tracer};
 
 pub trait InterpreterOutput {
     fn print(&mut self, chars: &[u8]);
@@ -91,15 +91,7 @@ impl<
         const MAX_LOCAL_VARS: usize,
         const OUTPUT_WIDTH: usize,
         G: GarbageCollectingHeap + Copy,
-    >
-    Interpreter<
-        MAX_TOKENS,
-        MAX_LITERAL_CHARS,
-        STACK_DEPTH,
-        MAX_LOCAL_VARS,
-        OUTPUT_WIDTH,
-        G,
-    >
+    > Interpreter<MAX_TOKENS, MAX_LITERAL_CHARS, STACK_DEPTH, MAX_LOCAL_VARS, OUTPUT_WIDTH, G>
 {
     pub fn new(program: &str) -> Self {
         let tokens = Tokenized::tokenize(program).unwrap();
@@ -122,7 +114,12 @@ impl<
     }
 
     fn token_panic(&self, label: &str) {
-        panic!("{label} {}/{} {:?}", self.token, self.tokens.num_tokens, &self.tokens.tokens[0..self.tokens.num_tokens]);
+        panic!(
+            "{label} {}/{} {:?}",
+            self.token,
+            self.tokens.num_tokens,
+            &self.tokens.tokens[0..self.tokens.num_tokens]
+        );
     }
 
     pub fn completed(&self) -> bool {
@@ -142,7 +139,8 @@ impl<
             self.malloc_number(input)
         } else {
             self.malloc_string(input)
-        }.unwrap();
+        }
+        .unwrap();
         let value = self.variables.pop_value();
         self.variables.assign(var, value);
         self.pending_assignment = None;
@@ -210,14 +208,18 @@ impl<
                         self.advance_token();
                         TickResult::Ok(())
                     }
-                    _ => return TickResult::Err(TickError::UnmatchedParen)
+                    _ => return TickResult::Err(TickError::UnmatchedParen),
                 }
             }
             _ => return TickResult::Err(TickError::MissingOpeningParen),
         }
     }
 
-    fn parse_symbol<I: InterpreterOutput>(&mut self, io: &mut I, s: [char; MAX_LITERAL_CHARS]) -> TickResult<()> {
+    fn parse_symbol<I: InterpreterOutput>(
+        &mut self,
+        io: &mut I,
+        s: [char; MAX_LITERAL_CHARS],
+    ) -> TickResult<()> {
         match self.current_token() {
             Token::Assign => {
                 self.advance_token();
@@ -243,7 +245,11 @@ impl<
         }
     }
 
-    fn parse_while<I: InterpreterOutput>(&mut self, io: &mut I, while_start: usize) -> TickResult<()> {
+    fn parse_while<I: InterpreterOutput>(
+        &mut self,
+        io: &mut I,
+        while_start: usize,
+    ) -> TickResult<()> {
         match self.parse_expr(io) {
             TickResult::Finished => panic!("Program ended too soon."),
             TickResult::AwaitInput => return TickResult::Err(TickError::NestedInput),
@@ -258,7 +264,7 @@ impl<
                             self.skip_block()
                         }
                     }
-                    _ => TickResult::Err(TickError::NeedsBoolean)
+                    _ => TickResult::Err(TickError::NeedsBoolean),
                 }
             }
         }
@@ -271,7 +277,7 @@ impl<
                 self.brace_stacker.while_loop(while_start);
                 TickResult::Ok(())
             }
-            _ => TickResult::Err(TickError::MissingOpeningBrace)
+            _ => TickResult::Err(TickError::MissingOpeningBrace),
         }
     }
 
@@ -296,9 +302,7 @@ impl<
                             }
                         }
                     }
-                    _ => {
-                        TickResult::Err(TickError::NeedsBoolean)
-                    }
+                    _ => TickResult::Err(TickError::NeedsBoolean),
                 }
             }
         }
@@ -321,10 +325,10 @@ impl<
                         _ => {}
                     }
                     self.advance_token();
-                } 
+                }
                 TickResult::Ok(())
             }
-            _ => TickResult::Err(TickError::MissingOpeningBrace)
+            _ => TickResult::Err(TickError::MissingOpeningBrace),
         }
     }
 
@@ -375,7 +379,7 @@ impl<
                         self.variables.push_value(value);
                         TickResult::Ok(())
                     }
-                    None => TickResult::Err(TickError::UnassignedVariable)
+                    None => TickResult::Err(TickError::UnassignedVariable),
                 }
             }
             Token::Input => {
@@ -394,9 +398,7 @@ impl<
                 self.advance_token();
                 self.parse_negate(io)
             }
-            _ => {
-                TickResult::Err(TickError::UnprocessableToken)
-            }
+            _ => TickResult::Err(TickError::UnprocessableToken),
         }
     }
 
@@ -406,7 +408,15 @@ impl<
             TickResult::Ok(_) => {
                 let op = self.current_token();
                 match op {
-                    Token::And | Token::Or | Token::Plus | Token::Minus | Token::Times | Token::Divide | Token::Equal | Token::LessThan | Token::GreaterThan => {
+                    Token::And
+                    | Token::Or
+                    | Token::Plus
+                    | Token::Minus
+                    | Token::Times
+                    | Token::Divide
+                    | Token::Equal
+                    | Token::LessThan
+                    | Token::GreaterThan => {
                         self.advance_token();
                         match self.parse_expr(io) {
                             TickResult::Ok(_) => {
@@ -417,7 +427,7 @@ impl<
                                         self.advance_token();
                                         self.do_arithmetic(value1, value2, op)
                                     }
-                                    _ => TickResult::Err(TickError::UnmatchedParen)
+                                    _ => TickResult::Err(TickError::UnmatchedParen),
                                 }
                             }
                             TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
@@ -425,15 +435,20 @@ impl<
                             TickResult::Finished => panic!("Program ended too soon."),
                         }
                     }
-                    _ => TickResult::Err(TickError::MissingBinaryOperator)
+                    _ => TickResult::Err(TickError::MissingBinaryOperator),
                 }
             }
             TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
-            TickResult::Err(e) => TickResult::Err(e)
+            TickResult::Err(e) => TickResult::Err(e),
         }
     }
 
-    fn do_arithmetic(&mut self, value1: Value, value2: Value, op: Token<MAX_LITERAL_CHARS>) -> TickResult<()> {
+    fn do_arithmetic(
+        &mut self,
+        value1: Value,
+        value2: Value,
+        op: Token<MAX_LITERAL_CHARS>,
+    ) -> TickResult<()> {
         match value1.t {
             ValueType::Integer => {
                 let v1 = self.load_int(value1.location);
@@ -447,7 +462,7 @@ impl<
                         let v2 = self.load_float(value2.location);
                         self.perform_binary_op(v1, v2, op, ValueType::Float, f64::to_bits)
                     }
-                    ValueType::String => self.string_not_string(op), 
+                    ValueType::String => self.string_not_string(op),
                     ValueType::Boolean => todo!(),
                 }
             }
@@ -466,31 +481,29 @@ impl<
                     ValueType::Boolean => todo!(),
                 }
             }
-            ValueType::String => {
-                match value2.t {
-                    ValueType::String => {
-                        self.malloc_boolean(if value1.location.len() == value2.location.len() {
-                            let mut p1 = Some(value1.location.clone());
-                            let mut p2 = Some(value2.location.clone());
-                            let mut strings_match = true;
-                            while strings_match && p1.is_some() {
-                                let v1 = self.heap.load(p1.unwrap()).unwrap();
-                                let v2 = self.heap.load(p2.unwrap()).unwrap();
-                                if v1 == v2 {
-                                    p1 = p1.unwrap().next();
-                                    p2 = p2.unwrap().next();
-                                } else {
-                                    strings_match = false;
-                                }
+            ValueType::String => match value2.t {
+                ValueType::String => {
+                    self.malloc_boolean(if value1.location.len() == value2.location.len() {
+                        let mut p1 = Some(value1.location.clone());
+                        let mut p2 = Some(value2.location.clone());
+                        let mut strings_match = true;
+                        while strings_match && p1.is_some() {
+                            let v1 = self.heap.load(p1.unwrap()).unwrap();
+                            let v2 = self.heap.load(p2.unwrap()).unwrap();
+                            if v1 == v2 {
+                                p1 = p1.unwrap().next();
+                                p2 = p2.unwrap().next();
+                            } else {
+                                strings_match = false;
                             }
-                            strings_match
-                        } else {
-                            false
-                        })
-                    }
-                    _ => self.malloc_boolean(false),
+                        }
+                        strings_match
+                    } else {
+                        false
+                    })
                 }
-            }
+                _ => self.malloc_boolean(false),
+            },
             ValueType::Boolean => todo!(),
         }
     }
@@ -503,30 +516,32 @@ impl<
         }
     }
 
-    fn perform_binary_op<N:Copy + Add<Output=N> + Sub<Output=N> + Mul<Output=N> + Div<Output=N> + PartialOrd + PartialEq, F:Fn(N) -> u64>(&mut self, v1: N, v2: N, op: Token<MAX_LITERAL_CHARS>, vt: ValueType, encoder_u64: F) -> TickResult<()> {
+    fn perform_binary_op<
+        N: Copy
+            + Add<Output = N>
+            + Sub<Output = N>
+            + Mul<Output = N>
+            + Div<Output = N>
+            + PartialOrd
+            + PartialEq,
+        F: Fn(N) -> u64,
+    >(
+        &mut self,
+        v1: N,
+        v2: N,
+        op: Token<MAX_LITERAL_CHARS>,
+        vt: ValueType,
+        encoder_u64: F,
+    ) -> TickResult<()> {
         match op {
-            Token::Plus => {
-                self.malloc_numeric_value(encoder_u64(v1 + v2), vt)
-            }
-            Token::Minus => {
-                self.malloc_numeric_value(encoder_u64(v1 - v2), vt)
-            }
-            Token::Times => {
-                self.malloc_numeric_value(encoder_u64(v1 * v2), vt)
-            }
-            Token::Divide => {
-                self.malloc_numeric_value(encoder_u64(v1 / v2), vt)
-            }
-            Token::LessThan => {
-                self.malloc_boolean(v1 < v2)
-            }
-            Token::GreaterThan => {
-                self.malloc_boolean(v1 > v2)
-            }
-            Token::Equal => {
-                self.malloc_boolean(v1 == v2)
-            }
-            _ => TickResult::Err(TickError::IllegalBinaryOperator)
+            Token::Plus => self.malloc_numeric_value(encoder_u64(v1 + v2), vt),
+            Token::Minus => self.malloc_numeric_value(encoder_u64(v1 - v2), vt),
+            Token::Times => self.malloc_numeric_value(encoder_u64(v1 * v2), vt),
+            Token::Divide => self.malloc_numeric_value(encoder_u64(v1 / v2), vt),
+            Token::LessThan => self.malloc_boolean(v1 < v2),
+            Token::GreaterThan => self.malloc_boolean(v1 > v2),
+            Token::Equal => self.malloc_boolean(v1 == v2),
+            _ => TickResult::Err(TickError::IllegalBinaryOperator),
         }
     }
 
@@ -536,7 +551,7 @@ impl<
                 let arg = self.variables.pop_value();
                 match arg.t {
                     ValueType::Boolean => self.malloc_boolean(!self.load_boolean(arg.location)),
-                    _ => TickResult::Err(TickError::NeedsBoolean)
+                    _ => TickResult::Err(TickError::NeedsBoolean),
                 }
             }
             TickResult::Finished => panic!("Program ended too soon."),
@@ -550,9 +565,15 @@ impl<
             TickResult::Ok(_) => {
                 let arg = self.variables.pop_value();
                 match arg.t {
-                    ValueType::Integer => self.malloc_numeric_value(make_unsigned_from(-self.load_int(arg.location)), ValueType::Integer),
-                    ValueType::Float => self.malloc_numeric_value((-self.load_float(arg.location)).to_bits(), ValueType::Float),
-                    _ => TickResult::Err(TickError::NotNegateable)
+                    ValueType::Integer => self.malloc_numeric_value(
+                        make_unsigned_from(-self.load_int(arg.location)),
+                        ValueType::Integer,
+                    ),
+                    ValueType::Float => self.malloc_numeric_value(
+                        (-self.load_float(arg.location)).to_bits(),
+                        ValueType::Float,
+                    ),
+                    _ => TickResult::Err(TickError::NotNegateable),
                 }
             }
             TickResult::Finished => panic!("Program ended too soon."),
@@ -598,7 +619,7 @@ impl<
                         self.advance_token();
                         return TickResult::AwaitInput;
                     }
-                    _ => return TickResult::Err(TickError::UnmatchedParen)
+                    _ => return TickResult::Err(TickError::UnmatchedParen),
                 }
             }
             _ => return TickResult::Err(TickError::MissingOpeningParen),
@@ -606,7 +627,7 @@ impl<
     }
 
     fn malloc_boolean(&mut self, value: bool) -> TickResult<()> {
-        let value = if value {u64::MAX} else {0};
+        let value = if value { u64::MAX } else { 0 };
         self.malloc_numeric_value(value, ValueType::Boolean)
     }
 
@@ -623,31 +644,29 @@ impl<
 
     fn malloc_numeric_value(&mut self, value: u64, t: ValueType) -> TickResult<()> {
         match self.heap.malloc(1, &self.variables) {
-            HeapResult::Ok(p) => match self.heap.store(p, value) {
-                HeapResult::Ok(_) => {
+            Ok(p) => match self.heap.store(p, value) {
+                Ok(_) => {
                     self.variables.push_value(Value { location: p, t });
                     TickResult::Ok(())
                 }
-                HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+                Err(e) => TickResult::Err(TickError::HeapIssue(e)),
             },
-            HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+            Err(e) => TickResult::Err(TickError::HeapIssue(e)),
         }
     }
 
     fn malloc_string(&mut self, s: &[char]) -> TickResult<()> {
         let num_chars = s.iter().take_while(|c| **c != '\0').count();
         match self.heap.malloc(num_chars, &self.variables) {
-            HeapResult::Ok(location) => {
+            Ok(location) => {
                 let mut p = Some(location);
                 for i in 0..num_chars {
                     let pt = p.unwrap();
                     match self.heap.store(pt, s[i] as u64) {
-                        HeapResult::Ok(_) => {
+                        Ok(_) => {
                             p = pt.next();
                         }
-                        HeapResult::Err(e) => {
-                            return TickResult::Err(TickError::HeapIssue(e))
-                        }
+                        Err(e) => return TickResult::Err(TickError::HeapIssue(e)),
                     }
                 }
 
@@ -657,7 +676,7 @@ impl<
                 });
                 TickResult::Ok(())
             }
-            HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+            Err(e) => TickResult::Err(TickError::HeapIssue(e)),
         }
     }
 
@@ -679,12 +698,15 @@ impl<
 #[derive(Clone, Copy, Debug)]
 struct BraceStacker<const MAX_DEPTH: usize> {
     brace_depth: usize,
-    loop_back_tokens: [Option<usize>; MAX_DEPTH]
+    loop_back_tokens: [Option<usize>; MAX_DEPTH],
 }
 
 impl<const MAX_DEPTH: usize> BraceStacker<MAX_DEPTH> {
     fn new() -> Self {
-        Self {brace_depth: 0, loop_back_tokens: [None; MAX_DEPTH]}
+        Self {
+            brace_depth: 0,
+            loop_back_tokens: [None; MAX_DEPTH],
+        }
     }
 
     fn while_loop(&mut self, condition_token: usize) {
@@ -714,7 +736,10 @@ struct Value {
 
 impl Default for Value {
     fn default() -> Self {
-        Self { location: Default::default(), t: ValueType::Integer }
+        Self {
+            location: Default::default(),
+            t: ValueType::Integer,
+        }
     }
 }
 
@@ -730,8 +755,8 @@ impl Value {
     ) -> TickResult<usize> {
         match self.t {
             ValueType::Integer => match heap.load(self.location) {
-                HeapResult::Ok(w) => i64_into_buffer(make_signed_from(w), buffer),
-                HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+                Ok(w) => i64_into_buffer(make_signed_from(w), buffer),
+                Err(e) => TickResult::Err(TickError::HeapIssue(e)),
             },
             ValueType::String => {
                 let mut p = Some(self.location);
@@ -739,32 +764,34 @@ impl Value {
                 for i in 0..end {
                     let pt = p.unwrap();
                     match heap.load(pt) {
-                        HeapResult::Ok(value) => {
+                        Ok(value) => {
                             buffer[i] = value as u8;
                             p = pt.next();
                         }
-                        HeapResult::Err(e) => return TickResult::Err(TickError::HeapIssue(e)),
+                        Err(e) => return TickResult::Err(TickError::HeapIssue(e)),
                     }
                 }
                 buffer[end] = '\n' as u8;
                 TickResult::Ok(end + 1)
             }
             ValueType::Float => match heap.load(self.location) {
-                HeapResult::Ok(w) => f64_into_buffer(f64::from_bits(w), buffer),
-                HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
-            }
-            ValueType::Boolean => {
-                match heap.load(self.location) {
-                    HeapResult::Err(e) => TickResult::Err(TickError::HeapIssue(e)),
-                    HeapResult::Ok(b) => {
-                        let bytes = if b == 0 {"false\n".as_bytes()} else {"true\n".as_bytes()};
-                        for (i, c) in bytes.iter().enumerate() {
-                            buffer[i] = *c;
-                        }
-                        TickResult::Ok(buffer.len() + 1)
+                Ok(w) => f64_into_buffer(f64::from_bits(w), buffer),
+                Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+            },
+            ValueType::Boolean => match heap.load(self.location) {
+                Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+                Ok(b) => {
+                    let bytes = if b == 0 {
+                        "false\n".as_bytes()
+                    } else {
+                        "true\n".as_bytes()
+                    };
+                    for (i, c) in bytes.iter().enumerate() {
+                        buffer[i] = *c;
                     }
+                    TickResult::Ok(buffer.len() + 1)
                 }
-            }
+            },
         }
     }
 }
@@ -774,7 +801,7 @@ enum ValueType {
     Integer,
     Float,
     String,
-    Boolean
+    Boolean,
 }
 
 fn parse_int_from(chars: &[char]) -> u64 {
@@ -851,7 +878,7 @@ pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> TickResult<usize> {
     }
     buffer[i] = '\n' as u8;
 
-    TickResult::Ok(i+1)
+    TickResult::Ok(i + 1)
 }
 
 pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
@@ -903,12 +930,18 @@ impl<const MAX_LITERAL_CHARS: usize> Default for Variable<MAX_LITERAL_CHARS> {
 }
 
 #[derive(Copy, Clone, Default, Debug)]
-pub struct VarTracer<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize> {
+pub struct VarTracer<
+    const MAX_LOCAL_VARS: usize,
+    const MAX_LITERAL_CHARS: usize,
+    const STACK_DEPTH: usize,
+> {
     vars: BareMetalMap<Variable<MAX_LITERAL_CHARS>, Value, MAX_LOCAL_VARS>,
     expr_stack: BareMetalStack<Value, STACK_DEPTH>,
 }
 
-impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize> Tracer for VarTracer<MAX_LOCAL_VARS, MAX_LITERAL_CHARS, STACK_DEPTH> {
+impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize> Tracer
+    for VarTracer<MAX_LOCAL_VARS, MAX_LITERAL_CHARS, STACK_DEPTH>
+{
     // If I ever add structs or arrays, this will need to be modified
     // to trace out those internal pointers as well.
     fn trace(&self, blocks_used: &mut [bool]) {
@@ -922,9 +955,14 @@ impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DE
     }
 }
 
-impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize> VarTracer<MAX_LOCAL_VARS, MAX_LITERAL_CHARS, STACK_DEPTH> {
+impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize>
+    VarTracer<MAX_LOCAL_VARS, MAX_LITERAL_CHARS, STACK_DEPTH>
+{
     pub fn new() -> Self {
-        Self {vars: BareMetalMap::new(), expr_stack: BareMetalStack::new()}
+        Self {
+            vars: BareMetalMap::new(),
+            expr_stack: BareMetalStack::new(),
+        }
     }
 
     fn assign(&mut self, variable: Variable<MAX_LITERAL_CHARS>, value: Value) {
@@ -942,7 +980,7 @@ impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DE
     fn pop_value(&mut self) -> Value {
         self.expr_stack.pop()
     }
-} 
+}
 
 #[derive(Debug)]
 pub enum TokenResult<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize> {
@@ -1140,7 +1178,7 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize>
 }
 
 fn is_number(chars: &[char]) -> bool {
-    chars.len() > 0 
+    chars.len() > 0
         && chars[0].is_numeric()
         && chars.iter().filter(|c| **c == '.').count() <= 1
         && chars.iter().all(|c| c.is_numeric() || *c == '.')
@@ -1234,7 +1272,7 @@ mod tests {
             (1, 1),
             (0, 0),
             (u64::MAX - 1, -2),
-            (u64::MAX - 100, -101)
+            (u64::MAX - 100, -101),
         ] {
             println!("{value}");
             let signed = make_signed_from(bits);
@@ -1249,11 +1287,15 @@ mod tests {
         let mut buffer = [0; 12];
         let bytes = f64_into_buffer(f, &mut buffer).unwrap();
         assert_eq!(bytes, buffer.len());
-        assert_eq!(format!("{buffer:?}"), "[49, 50, 51, 52, 46, 53, 54, 55, 56, 57, 48, 10]");
+        assert_eq!(
+            format!("{buffer:?}"),
+            "[49, 50, 51, 52, 46, 53, 54, 55, 56, 57, 48, 10]"
+        );
 
         let f = -43.21;
         let mut buffer = [0; 7];
-        let bytes = f64_into_buffer(f, &mut buffer).unwrap();assert_eq!(bytes, buffer.len());
+        let bytes = f64_into_buffer(f, &mut buffer).unwrap();
+        assert_eq!(bytes, buffer.len());
         assert_eq!(format!("{buffer:?}"), "[45, 52, 51, 46, 50, 49, 10]");
     }
 
