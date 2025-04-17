@@ -9,9 +9,10 @@
 
 use core::cmp::min;
 use core::default::Default;
-use core::ops::{Add, Div, FnOnce, Mul, Sub};
+use core::ops::{Add, Div, Mul, Sub};
 use core::option::Option;
 use core::option::Option::{None, Some};
+use core::result::Result;
 
 use bare_metal_map::BareMetalMap;
 use bare_metal_queue::BareMetalStack;
@@ -38,31 +39,11 @@ pub struct Interpreter<
     brace_stacker: BraceStacker<STACK_DEPTH>,
 }
 
-pub enum TickResult<T> {
-    Ok(T),
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TickStatus {
+    Continuing,
     Finished,
     AwaitInput,
-    Err(TickError),
-}
-
-impl<T> TickResult<T> {
-    pub fn unwrap(self) -> T {
-        match self {
-            TickResult::Ok(v) => v,
-            TickResult::Finished => panic!("No result - program already over"),
-            TickResult::AwaitInput => panic!("No result - awaiting input"),
-            TickResult::Err(e) => panic!("Interpreter Error: {e:?}"),
-        }
-    }
-
-    pub fn map<U, F: FnOnce(T) -> U>(self, op: F) -> TickResult<U> {
-        match self {
-            TickResult::Ok(value) => TickResult::Ok(op(value)),
-            TickResult::Err(e) => TickResult::Err(e),
-            TickResult::AwaitInput => TickResult::AwaitInput,
-            TickResult::Finished => TickResult::Finished,
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -146,12 +127,12 @@ impl<
         self.pending_assignment = None;
     }
 
-    pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
+    pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> Result<TickStatus, TickError> {
         if self.blocked_on_input() {
-            return TickResult::Err(TickError::TickWhileAwaitingInput);
+            return Err(TickError::TickWhileAwaitingInput);
         }
         if self.token == self.tokens.num_tokens {
-            return TickResult::Finished;
+            return Ok(TickStatus::Finished);
         }
         match self.current_token() {
             Token::Print => {
@@ -183,35 +164,29 @@ impl<
         }
     }
 
-    fn parse_print<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
+    fn parse_print<I: InterpreterOutput>(&mut self, io: &mut I) -> Result<TickStatus, TickError> {
         match self.current_token() {
             Token::OpenParen => {
                 self.advance_token();
-                match self.parse_expr(io) {
-                    TickResult::Ok(_) => {
+                match self.parse_expr(io)? {
+                    TickStatus::Continuing => {
                         let value = self.variables.pop_value();
-                        match self.print_value(&value, io) {
-                            TickResult::Ok(_) => {}
-                            TickResult::Err(e) => return TickResult::Err(e),
-                            TickResult::AwaitInput => panic!("Input to print not implemented"),
-                            TickResult::Finished => panic!("Program ended too soon."),
-                        }
+                        self.print_value(&value, io)?;
                     }
-                    TickResult::AwaitInput => {
+                    TickStatus::AwaitInput => {
                         panic!("Input to print not implemented");
                     }
-                    TickResult::Err(e) => return TickResult::Err(e),
-                    TickResult::Finished => panic!("Program ended too soon."),
+                    TickStatus::Finished => panic!("Program ended too soon."),
                 }
                 match self.current_token() {
                     Token::CloseParen => {
                         self.advance_token();
-                        TickResult::Ok(())
+                        Ok(TickStatus::Continuing)
                     }
-                    _ => return TickResult::Err(TickError::UnmatchedParen),
+                    _ => return Err(TickError::UnmatchedParen),
                 }
             }
-            _ => return TickResult::Err(TickError::MissingOpeningParen),
+            _ => return Err(TickError::MissingOpeningParen),
         }
     }
 
@@ -219,29 +194,28 @@ impl<
         &mut self,
         io: &mut I,
         s: [char; MAX_LITERAL_CHARS],
-    ) -> TickResult<()> {
+    ) -> Result<TickStatus, TickError> {
         match self.current_token() {
             Token::Assign => {
                 self.advance_token();
-                match self.parse_expr(io) {
-                    TickResult::Ok(_) => {
+                match self.parse_expr(io)? {
+                    TickStatus::Continuing => {
                         let value = self.variables.pop_value();
                         self.variables.assign(Variable(s), value);
-                        TickResult::Ok(())
+                        Ok(TickStatus::Continuing)
                     }
-                    TickResult::Err(e) => return TickResult::Err(e),
-                    TickResult::AwaitInput => {
+                    TickStatus::AwaitInput => {
                         self.pending_assignment = Some(Variable(s));
-                        return TickResult::AwaitInput;
+                        return Ok(TickStatus::AwaitInput);
                     }
-                    TickResult::Finished => panic!("Program ended too soon."),
+                    TickStatus::Finished => panic!("Program ended too soon."),
                 }
             }
             Token::OpenParen => {
                 self.token_panic("Func call");
                 todo!("Function call");
             }
-            _ => return TickResult::Err(TickError::UnprocessableSymbol),
+            _ => return Err(TickError::UnprocessableSymbol),
         }
     }
 
@@ -249,12 +223,11 @@ impl<
         &mut self,
         io: &mut I,
         while_start: usize,
-    ) -> TickResult<()> {
-        match self.parse_expr(io) {
-            TickResult::Finished => panic!("Program ended too soon."),
-            TickResult::AwaitInput => return TickResult::Err(TickError::NestedInput),
-            TickResult::Err(e) => return TickResult::Err(e),
-            TickResult::Ok(_) => {
+    ) -> Result<TickStatus, TickError> {
+        match self.parse_expr(io)? {
+            TickStatus::Finished => panic!("Program ended too soon."),
+            TickStatus::AwaitInput => return Err(TickError::NestedInput),
+            TickStatus::Continuing => {
                 let value = self.variables.pop_value();
                 match value.t {
                     ValueType::Boolean => {
@@ -264,51 +237,50 @@ impl<
                             self.skip_block()
                         }
                     }
-                    _ => TickResult::Err(TickError::NeedsBoolean),
+                    _ => Err(TickError::NeedsBoolean),
                 }
             }
         }
     }
 
-    fn enter_while(&mut self, while_start: usize) -> TickResult<()> {
+    fn enter_while(&mut self, while_start: usize) -> Result<TickStatus, TickError> {
         match self.current_token() {
             Token::OpenCurly => {
                 self.advance_token();
                 self.brace_stacker.while_loop(while_start);
-                TickResult::Ok(())
+                Ok(TickStatus::Continuing)
             }
-            _ => TickResult::Err(TickError::MissingOpeningBrace),
+            _ => Err(TickError::MissingOpeningBrace),
         }
     }
 
-    fn parse_if<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
-        match self.parse_expr(io) {
-            TickResult::Finished => panic!("Program ended too soon."),
-            TickResult::AwaitInput => return TickResult::Err(TickError::NestedInput),
-            TickResult::Err(e) => return TickResult::Err(e),
-            TickResult::Ok(_) => {
+    fn parse_if<I: InterpreterOutput>(&mut self, io: &mut I) -> Result<TickStatus, TickError> {
+        match self.parse_expr(io)? {
+            TickStatus::Finished => panic!("Program ended too soon."),
+            TickStatus::AwaitInput => return Err(TickError::NestedInput),
+            TickStatus::Continuing => {
                 let value = self.variables.pop_value();
                 match value.t {
                     ValueType::Boolean => {
                         if self.load_boolean(value.location) {
                             self.parse_block_start()
                         } else {
-                            self.skip_block();
+                            self.skip_block()?;
                             if let Token::Else = self.current_token() {
                                 self.advance_token();
                                 self.parse_block_start()
                             } else {
-                                TickResult::Ok(())
+                                Ok(TickStatus::Continuing)
                             }
                         }
                     }
-                    _ => TickResult::Err(TickError::NeedsBoolean),
+                    _ => Err(TickError::NeedsBoolean),
                 }
             }
         }
     }
 
-    fn skip_block(&mut self) -> TickResult<()> {
+    fn skip_block(&mut self) -> Result<TickStatus, TickError> {
         let goal_depth = self.brace_stacker.depth();
         match self.current_token() {
             Token::OpenCurly => {
@@ -326,23 +298,23 @@ impl<
                     }
                     self.advance_token();
                 }
-                TickResult::Ok(())
+                Ok(TickStatus::Continuing)
             }
-            _ => TickResult::Err(TickError::MissingOpeningBrace),
+            _ => Err(TickError::MissingOpeningBrace),
         }
     }
 
-    fn parse_block_start(&mut self) -> TickResult<()> {
+    fn parse_block_start(&mut self) -> Result<TickStatus, TickError> {
         if let Token::OpenCurly = self.current_token() {
             self.advance_token();
             self.brace_stacker.opening_brace();
-            TickResult::Ok(())
+            Ok(TickStatus::Continuing)
         } else {
-            TickResult::Err(TickError::MissingOpeningBrace)
+            Err(TickError::MissingOpeningBrace)
         }
     }
 
-    fn parse_block_end(&mut self) -> TickResult<()> {
+    fn parse_block_end(&mut self) -> Result<TickStatus, TickError> {
         match self.brace_stacker.closing_brace() {
             Some(while_token) => {
                 self.token = while_token;
@@ -351,35 +323,35 @@ impl<
                 self.advance_token();
             }
         }
-        TickResult::Ok(())
+        Ok(TickStatus::Continuing)
     }
 
-    fn parse_expr<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
+    fn parse_expr<I: InterpreterOutput>(&mut self, io: &mut I) -> Result<TickStatus, TickError> {
         match self.current_token() {
             Token::True => {
                 self.advance_token();
-                self.malloc_boolean(true)
+                self.malloc_boolean(true).map(|_| TickStatus::Continuing)
             }
             Token::False => {
                 self.advance_token();
-                self.malloc_boolean(false)
+                self.malloc_boolean(false).map(|_| TickStatus::Continuing)
             }
             Token::Number(n) => {
                 self.advance_token();
-                self.malloc_number(&n)
+                self.malloc_number(&n).map(|_| TickStatus::Continuing)
             }
             Token::String(s) => {
                 self.advance_token();
-                self.malloc_string(&s)
+                self.malloc_string(&s).map(|_| TickStatus::Continuing)
             }
             Token::Symbol(s) => {
                 self.advance_token();
                 match self.variables.look_up(Variable(s)) {
                     Some(value) => {
                         self.variables.push_value(value);
-                        TickResult::Ok(())
+                        Ok(TickStatus::Continuing)
                     }
-                    None => TickResult::Err(TickError::UnassignedVariable),
+                    None => Err(TickError::UnassignedVariable),
                 }
             }
             Token::Input => {
@@ -398,48 +370,40 @@ impl<
                 self.advance_token();
                 self.parse_negate(io)
             }
-            _ => TickResult::Err(TickError::UnprocessableToken),
+            _ => Err(TickError::UnprocessableToken),
         }
     }
 
-    fn parse_operation<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
-        match self.parse_expr(io) {
-            TickResult::Finished => panic!("Program ended too soon."),
-            TickResult::Ok(_) => {
-                let op = self.current_token();
-                match op {
-                    Token::And
-                    | Token::Or
-                    | Token::Plus
-                    | Token::Minus
-                    | Token::Times
-                    | Token::Divide
-                    | Token::Equal
-                    | Token::LessThan
-                    | Token::GreaterThan => {
+    fn parse_operation<I: InterpreterOutput>(
+        &mut self,
+        io: &mut I,
+    ) -> Result<TickStatus, TickError> {
+        self.parse_expr(io)?;
+        let op = self.current_token();
+        match op {
+            Token::And
+            | Token::Or
+            | Token::Plus
+            | Token::Minus
+            | Token::Times
+            | Token::Divide
+            | Token::Equal
+            | Token::LessThan
+            | Token::GreaterThan => {
+                self.advance_token();
+                self.parse_expr(io)?;
+                let value2 = self.variables.pop_value();
+                let value1 = self.variables.pop_value();
+                match self.current_token() {
+                    Token::CloseParen => {
                         self.advance_token();
-                        match self.parse_expr(io) {
-                            TickResult::Ok(_) => {
-                                let value2 = self.variables.pop_value();
-                                let value1 = self.variables.pop_value();
-                                match self.current_token() {
-                                    Token::CloseParen => {
-                                        self.advance_token();
-                                        self.do_arithmetic(value1, value2, op)
-                                    }
-                                    _ => TickResult::Err(TickError::UnmatchedParen),
-                                }
-                            }
-                            TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
-                            TickResult::Err(e) => TickResult::Err(e),
-                            TickResult::Finished => panic!("Program ended too soon."),
-                        }
+                        self.do_arithmetic(value1, value2, op)
+                            .map(|_| TickStatus::Continuing)
                     }
-                    _ => TickResult::Err(TickError::MissingBinaryOperator),
+                    _ => Err(TickError::UnmatchedParen),
                 }
             }
-            TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
-            TickResult::Err(e) => TickResult::Err(e),
+            _ => Err(TickError::MissingBinaryOperator),
         }
     }
 
@@ -448,7 +412,7 @@ impl<
         value1: Value,
         value2: Value,
         op: Token<MAX_LITERAL_CHARS>,
-    ) -> TickResult<()> {
+    ) -> Result<(), TickError> {
         match value1.t {
             ValueType::Integer => {
                 let v1 = self.load_int(value1.location);
@@ -508,11 +472,11 @@ impl<
         }
     }
 
-    fn string_not_string(&mut self, op: Token<MAX_LITERAL_CHARS>) -> TickResult<()> {
+    fn string_not_string(&mut self, op: Token<MAX_LITERAL_CHARS>) -> Result<(), TickError> {
         if let Token::Equal = op {
             self.malloc_boolean(false)
         } else {
-            TickResult::Err(TickError::IllegalBinaryOperator)
+            Err(TickError::IllegalBinaryOperator)
         }
     }
 
@@ -532,7 +496,7 @@ impl<
         op: Token<MAX_LITERAL_CHARS>,
         vt: ValueType,
         encoder_u64: F,
-    ) -> TickResult<()> {
+    ) -> Result<(), TickError> {
         match op {
             Token::Plus => self.malloc_numeric_value(encoder_u64(v1 + v2), vt),
             Token::Minus => self.malloc_numeric_value(encoder_u64(v1 - v2), vt),
@@ -541,44 +505,48 @@ impl<
             Token::LessThan => self.malloc_boolean(v1 < v2),
             Token::GreaterThan => self.malloc_boolean(v1 > v2),
             Token::Equal => self.malloc_boolean(v1 == v2),
-            _ => TickResult::Err(TickError::IllegalBinaryOperator),
+            _ => Err(TickError::IllegalBinaryOperator),
         }
     }
 
-    fn parse_not<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
-        match self.parse_expr(io) {
-            TickResult::Ok(_) => {
+    fn parse_not<I: InterpreterOutput>(&mut self, io: &mut I) -> Result<TickStatus, TickError> {
+        match self.parse_expr(io)? {
+            TickStatus::Continuing => {
                 let arg = self.variables.pop_value();
                 match arg.t {
-                    ValueType::Boolean => self.malloc_boolean(!self.load_boolean(arg.location)),
-                    _ => TickResult::Err(TickError::NeedsBoolean),
+                    ValueType::Boolean => self
+                        .malloc_boolean(!self.load_boolean(arg.location))
+                        .map(|_| TickStatus::Continuing),
+                    _ => Err(TickError::NeedsBoolean),
                 }
             }
-            TickResult::Finished => panic!("Program ended too soon."),
-            TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
-            TickResult::Err(e) => TickResult::Err(e),
+            TickStatus::Finished => panic!("Program ended too soon."),
+            TickStatus::AwaitInput => Err(TickError::NestedInput),
         }
     }
 
-    fn parse_negate<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
-        match self.parse_expr(io) {
-            TickResult::Ok(_) => {
+    fn parse_negate<I: InterpreterOutput>(&mut self, io: &mut I) -> Result<TickStatus, TickError> {
+        match self.parse_expr(io)? {
+            TickStatus::Continuing => {
                 let arg = self.variables.pop_value();
                 match arg.t {
-                    ValueType::Integer => self.malloc_numeric_value(
-                        make_unsigned_from(-self.load_int(arg.location)),
-                        ValueType::Integer,
-                    ),
-                    ValueType::Float => self.malloc_numeric_value(
-                        (-self.load_float(arg.location)).to_bits(),
-                        ValueType::Float,
-                    ),
-                    _ => TickResult::Err(TickError::NotNegateable),
+                    ValueType::Integer => self
+                        .malloc_numeric_value(
+                            make_unsigned_from(-self.load_int(arg.location)),
+                            ValueType::Integer,
+                        )
+                        .map(|_| TickStatus::Continuing),
+                    ValueType::Float => self
+                        .malloc_numeric_value(
+                            (-self.load_float(arg.location)).to_bits(),
+                            ValueType::Float,
+                        )
+                        .map(|_| TickStatus::Continuing),
+                    _ => Err(TickError::NotNegateable),
                 }
             }
-            TickResult::Finished => panic!("Program ended too soon."),
-            TickResult::AwaitInput => TickResult::Err(TickError::NestedInput),
-            TickResult::Err(e) => TickResult::Err(e),
+            TickStatus::Finished => panic!("Program ended too soon."),
+            TickStatus::AwaitInput => Err(TickError::NestedInput),
         }
     }
 
@@ -594,44 +562,39 @@ impl<
         f64::from_bits(self.heap.load(p).unwrap())
     }
 
-    fn parse_input<I: InterpreterOutput>(&mut self, io: &mut I) -> TickResult<()> {
+    fn parse_input<I: InterpreterOutput>(&mut self, io: &mut I) -> Result<TickStatus, TickError> {
         match self.current_token() {
             Token::OpenParen => {
                 self.advance_token();
-                match self.parse_expr(io) {
-                    TickResult::Ok(_) => {
+                self.parse_expr(io)?;
+                match self.parse_expr(io)? {
+                    TickStatus::Continuing => {
                         let value = self.variables.pop_value();
-                        match self.print_value(&value, io) {
-                            TickResult::Ok(_) => {}
-                            TickResult::Err(e) => return TickResult::Err(e),
-                            TickResult::AwaitInput => panic!("Input within input not implemented"),
-                            TickResult::Finished => panic!("Program ended too soon."),
-                        }
+                        self.print_value(&value, io)?;
                     }
-                    TickResult::AwaitInput => {
-                        panic!("Input within input not implemented");
+                    TickStatus::Finished => panic!("Program ended too soon."),
+                    TickStatus::AwaitInput => {
+                        return Err(TickError::NestedInput);
                     }
-                    TickResult::Err(e) => return TickResult::Err(e),
-                    TickResult::Finished => panic!("Program ended too soon."),
                 }
                 match self.current_token() {
                     Token::CloseParen => {
                         self.advance_token();
-                        return TickResult::AwaitInput;
+                        return Ok(TickStatus::AwaitInput);
                     }
-                    _ => return TickResult::Err(TickError::UnmatchedParen),
+                    _ => return Err(TickError::UnmatchedParen),
                 }
             }
-            _ => return TickResult::Err(TickError::MissingOpeningParen),
+            _ => return Err(TickError::MissingOpeningParen),
         }
     }
 
-    fn malloc_boolean(&mut self, value: bool) -> TickResult<()> {
+    fn malloc_boolean(&mut self, value: bool) -> Result<(), TickError> {
         let value = if value { u64::MAX } else { 0 };
         self.malloc_numeric_value(value, ValueType::Boolean)
     }
 
-    fn malloc_number(&mut self, n: &[char]) -> TickResult<()> {
+    fn malloc_number(&mut self, n: &[char]) -> Result<(), TickError> {
         let (t, value) = if n.contains(&'.') {
             let float_val = parse_float_from(n);
             (ValueType::Float, float_val.to_bits())
@@ -642,20 +605,20 @@ impl<
         self.malloc_numeric_value(value, t)
     }
 
-    fn malloc_numeric_value(&mut self, value: u64, t: ValueType) -> TickResult<()> {
+    fn malloc_numeric_value(&mut self, value: u64, t: ValueType) -> Result<(), TickError> {
         match self.heap.malloc(1, &self.variables) {
             Ok(p) => match self.heap.store(p, value) {
                 Ok(_) => {
                     self.variables.push_value(Value { location: p, t });
-                    TickResult::Ok(())
+                    Ok(())
                 }
-                Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+                Err(e) => Err(TickError::HeapIssue(e)),
             },
-            Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+            Err(e) => Err(TickError::HeapIssue(e)),
         }
     }
 
-    fn malloc_string(&mut self, s: &[char]) -> TickResult<()> {
+    fn malloc_string(&mut self, s: &[char]) -> Result<(), TickError> {
         let num_chars = s.iter().take_while(|c| **c != '\0').count();
         match self.heap.malloc(num_chars, &self.variables) {
             Ok(location) => {
@@ -666,7 +629,7 @@ impl<
                         Ok(_) => {
                             p = pt.next();
                         }
-                        Err(e) => return TickResult::Err(TickError::HeapIssue(e)),
+                        Err(e) => return Err(TickError::HeapIssue(e)),
                     }
                 }
 
@@ -674,24 +637,18 @@ impl<
                     location,
                     t: ValueType::String,
                 });
-                TickResult::Ok(())
+                Ok(())
             }
-            Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+            Err(e) => Err(TickError::HeapIssue(e)),
         }
     }
 
-    fn print_value<I: InterpreterOutput>(&self, v: &Value, io: &mut I) -> TickResult<()> {
+    fn print_value<I: InterpreterOutput>(&self, v: &Value, io: &mut I) -> Result<(), TickError> {
         assert!(OUTPUT_WIDTH > 3);
         let mut output_buffer = [0; OUTPUT_WIDTH];
-        match v.output::<G>(&self.heap, &mut output_buffer) {
-            TickResult::Ok(num_words) => {
-                io.print(&output_buffer[0..num_words]);
-                TickResult::Ok(())
-            }
-            TickResult::Err(e) => TickResult::Err(e),
-            TickResult::AwaitInput => panic!("This should never happen."),
-            TickResult::Finished => panic!("Program ended too soon."),
-        }
+        let num_words = v.output::<G>(&self.heap, &mut output_buffer)?;
+        io.print(&output_buffer[0..num_words]);
+        Ok(())
     }
 }
 
@@ -752,11 +709,11 @@ impl Value {
         &self,
         heap: &G,
         buffer: &mut [u8],
-    ) -> TickResult<usize> {
+    ) -> Result<usize, TickError> {
         match self.t {
             ValueType::Integer => match heap.load(self.location) {
                 Ok(w) => i64_into_buffer(make_signed_from(w), buffer),
-                Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+                Err(e) => Err(TickError::HeapIssue(e)),
             },
             ValueType::String => {
                 let mut p = Some(self.location);
@@ -768,18 +725,18 @@ impl Value {
                             buffer[i] = value as u8;
                             p = pt.next();
                         }
-                        Err(e) => return TickResult::Err(TickError::HeapIssue(e)),
+                        Err(e) => return Err(TickError::HeapIssue(e)),
                     }
                 }
                 buffer[end] = '\n' as u8;
-                TickResult::Ok(end + 1)
+                Ok(end + 1)
             }
             ValueType::Float => match heap.load(self.location) {
                 Ok(w) => f64_into_buffer(f64::from_bits(w), buffer),
-                Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+                Err(e) => Err(TickError::HeapIssue(e)),
             },
             ValueType::Boolean => match heap.load(self.location) {
-                Err(e) => TickResult::Err(TickError::HeapIssue(e)),
+                Err(e) => Err(TickError::HeapIssue(e)),
                 Ok(b) => {
                     let bytes = if b == 0 {
                         "false\n".as_bytes()
@@ -789,7 +746,7 @@ impl Value {
                     for (i, c) in bytes.iter().enumerate() {
                         buffer[i] = *c;
                     }
-                    TickResult::Ok(buffer.len() + 1)
+                    Ok(buffer.len() + 1)
                 }
             },
         }
@@ -851,11 +808,11 @@ fn parse_float_from(chars: &[char]) -> f64 {
     value
 }
 
-pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> TickResult<usize> {
+pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> Result<usize, TickError> {
     if value == 0 {
         buffer[0] = '0' as u8;
         buffer[1] = '\n' as u8;
-        return TickResult::Ok(2);
+        return Ok(2);
     }
     let mut start = if value < 0 {
         buffer[0] = '-' as u8;
@@ -878,10 +835,10 @@ pub fn i64_into_buffer(mut value: i64, buffer: &mut [u8]) -> TickResult<usize> {
     }
     buffer[i] = '\n' as u8;
 
-    TickResult::Ok(i + 1)
+    Ok(i + 1)
 }
 
-pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
+pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> Result<usize, TickError> {
     let start = if value < 0.0 {
         buffer[0] = '-' as u8;
         value = -value;
@@ -916,7 +873,7 @@ pub fn f64_into_buffer(mut value: f64, buffer: &mut [u8]) -> TickResult<usize> {
         buffer[buffer.len() - 1] = '\n' as u8;
         bytes = buffer.len();
     }
-    TickResult::Ok(bytes)
+    Ok(bytes)
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
