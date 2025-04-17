@@ -14,6 +14,7 @@ use core::option::Option;
 use core::option::Option::{None, Some};
 use core::result::Result;
 use core::fmt::{self, Write};
+use core::str::Utf8Error;
 
 use bare_metal_map::BareMetalMap;
 use bare_metal_queue::BareMetalStack;
@@ -1173,20 +1174,24 @@ fn is_number(chars: &[char]) -> bool {
 
 // From https://www.perplexity.ai/search/in-no-std-rust-how-can-you-con-BXi9dcqaT16t_uq.nPJAZA
 #[derive(Copy, Clone)]
-struct ArrayString<const BUFFER_SIZE: usize> {
+pub struct ArrayString<const BUFFER_SIZE: usize> {
     buf: [u8; BUFFER_SIZE],
     pos: usize,
 }
 
 impl<const BUFFER_SIZE: usize> ArrayString<BUFFER_SIZE> {
-    fn buffer_slice(&self) -> &[u8] {
+    pub fn buffer_slice(&self) -> &[u8] {
         &self.buf[..self.pos]
+    }
+
+    pub fn as_str(&self) -> Result::<&str, Utf8Error> {
+        core::str::from_utf8(self.buffer_slice())
     }
 }
 
 impl<const BUFFER_SIZE: usize> Default for ArrayString<BUFFER_SIZE> {
     fn default() -> Self {
-        Self { buf: [0; BUFFER_SIZE], pos: Default::default() }
+        Self { buf: [0; BUFFER_SIZE], pos: 0 }
     }
 }
 
