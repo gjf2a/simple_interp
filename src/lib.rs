@@ -13,6 +13,7 @@ use core::ops::{Add, Div, Mul, Sub};
 use core::option::Option;
 use core::option::Option::{None, Some};
 use core::result::Result;
+use core::fmt::{self, Write};
 
 use bare_metal_map::BareMetalMap;
 use bare_metal_queue::BareMetalStack;
@@ -144,13 +145,26 @@ impl<
         self.pending_assignment = None;
     }
 
-    pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> Result<TickStatus, TickError> {
+    pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> TickStatus {
         if self.blocked_on_input() {
-            return Err(TickError::TickWhileAwaitingInput);
+            TickStatus::AwaitInput
+        } else if self.token == self.tokens.num_tokens {
+            TickStatus::Finished
+        } else {
+            match self.parse_next_cmd(io) {
+                Ok(status) => status,
+                Err(e) => {
+                    let mut error_buffer = ArrayString::<100>::default();
+                    write!(&mut error_buffer, "{e:?}").unwrap();
+                    io.print(error_buffer.buffer_slice());
+                    TickStatus::Finished
+                }
+            }
         }
-        if self.token == self.tokens.num_tokens {
-            return Ok(TickStatus::Finished);
-        }
+        
+    }
+
+    fn parse_next_cmd<I: InterpreterOutput>(&mut self, io: &mut I) -> Result<TickStatus, TickError> {
         match self.current_token() {
             Token::Print => {
                 self.advance_token();
@@ -175,8 +189,7 @@ impl<
             }
             Token::CloseCurly => self.parse_block_end(),
             _ => {
-                self.token_panic("unimplemented");
-                todo!()
+                Err(TickError::UnprocessableToken)
             }
         }
     }
@@ -1156,6 +1169,36 @@ fn is_number(chars: &[char]) -> bool {
         && chars[0].is_numeric()
         && chars.iter().filter(|c| **c == '.').count() <= 1
         && chars.iter().all(|c| c.is_numeric() || *c == '.')
+}
+
+// From https://www.perplexity.ai/search/in-no-std-rust-how-can-you-con-BXi9dcqaT16t_uq.nPJAZA
+#[derive(Copy, Clone)]
+struct ArrayString<const BUFFER_SIZE: usize> {
+    buf: [u8; BUFFER_SIZE],
+    pos: usize,
+}
+
+impl<const BUFFER_SIZE: usize> ArrayString<BUFFER_SIZE> {
+    fn buffer_slice(&self) -> &[u8] {
+        &self.buf[..self.pos]
+    }
+}
+
+impl<const BUFFER_SIZE: usize> Default for ArrayString<BUFFER_SIZE> {
+    fn default() -> Self {
+        Self { buf: [0; BUFFER_SIZE], pos: Default::default() }
+    }
+}
+
+impl<const BUFFER_SIZE: usize> Write for ArrayString<BUFFER_SIZE> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let bytes = s.as_bytes();
+        let available = self.buf.len() - self.pos;
+        let to_copy = bytes.len().min(available);
+        self.buf[self.pos..self.pos + to_copy].copy_from_slice(&bytes[..to_copy]);
+        self.pos += to_copy;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
