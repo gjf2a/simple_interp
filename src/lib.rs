@@ -18,6 +18,8 @@ use bare_metal_map::BareMetalMap;
 use bare_metal_queue::BareMetalStack;
 use gc_headers::{GarbageCollectingHeap, HeapError, Pointer, Tracer};
 
+use thiserror_no_std::Error;
+
 pub trait InterpreterOutput {
     fn print(&mut self, chars: &[u8]);
 }
@@ -46,22 +48,37 @@ pub enum TickStatus {
     AwaitInput,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Error)]
 pub enum TickError {
+    #[error("Heap error: {0}")]
     HeapIssue(HeapError),
+    #[error("Awaiting input, but advanced by one tick anyway")]
     TickWhileAwaitingInput,
+    #[error("Cannot negate")]
     NotNegateable,
+    #[error("Unmatched parentheses")]
     UnmatchedParen,
+    #[error("Syntax error")]
     SyntaxError,
+    #[error("Unprocessable token: ")]
     UnprocessableToken,
+    #[error("Unassigned variable")]
     UnassignedVariable,
+    #[error("Nested input() statement")]
     NestedInput,
+    #[error("Expected binary operator")]
     MissingBinaryOperator,
+    #[error("Illegal binary operator")]
     IllegalBinaryOperator,
+    #[error("Boolean value needed")]
     NeedsBoolean,
+    #[error("Missing opening brace")]
     MissingOpeningBrace,
+    #[error("Missing opening parentheses")]
     MissingOpeningParen,
+    #[error("Unprocessable symbol")]
     UnprocessableSymbol,
+    #[error("Unimplemented operation")]
     UnimplementedOpeartion,
 }
 

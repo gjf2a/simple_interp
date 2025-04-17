@@ -48,6 +48,7 @@ dependencies = [
  "bare_metal_map",
  "bare_metal_queue",
  "gc_headers",
+ "thiserror-no-std",
 ]
 
 [[package]]
