@@ -1176,32 +1176,43 @@ fn is_number(chars: &[char]) -> bool {
 #[derive(Copy, Clone)]
 pub struct ArrayString<const BUFFER_SIZE: usize> {
     buf: [u8; BUFFER_SIZE],
-    pos: usize,
+    len: usize,
 }
 
 impl<const BUFFER_SIZE: usize> ArrayString<BUFFER_SIZE> {
     pub fn buffer_slice(&self) -> &[u8] {
-        &self.buf[..self.pos]
+        &self.buf[..self.len]
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
     }
 
     pub fn as_str(&self) -> Result::<&str, Utf8Error> {
         core::str::from_utf8(self.buffer_slice())
     }
+
+    pub fn push_char(&mut self, c: char) {
+        if self.len < self.buf.len() {
+            self.buf[self.len] = c as u8;
+            self.len += 1;
+        }
+    }
 }
 
 impl<const BUFFER_SIZE: usize> Default for ArrayString<BUFFER_SIZE> {
     fn default() -> Self {
-        Self { buf: [0; BUFFER_SIZE], pos: 0 }
+        Self { buf: [0; BUFFER_SIZE], len: 0 }
     }
 }
 
 impl<const BUFFER_SIZE: usize> Write for ArrayString<BUFFER_SIZE> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         let bytes = s.as_bytes();
-        let available = self.buf.len() - self.pos;
+        let available = self.buf.len() - self.len;
         let to_copy = bytes.len().min(available);
-        self.buf[self.pos..self.pos + to_copy].copy_from_slice(&bytes[..to_copy]);
-        self.pos += to_copy;
+        self.buf[self.len..self.len + to_copy].copy_from_slice(&bytes[..to_copy]);
+        self.len += to_copy;
         Ok(())
     }
 }
