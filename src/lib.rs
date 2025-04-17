@@ -1193,7 +1193,9 @@ impl<const BUFFER_SIZE: usize> ArrayString<BUFFER_SIZE> {
     }
 
     pub fn push_char(&mut self, c: char) {
-        if self.len < self.buf.len() {
+        if c == '\u{8}' && self.len > 0 {
+            self.len -= 1;
+        } else if self.len < self.buf.len() {
             self.buf[self.len] = c as u8;
             self.len += 1;
         }
