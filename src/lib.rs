@@ -190,6 +190,7 @@ impl<
             }
             Token::CloseCurly => self.parse_block_end(),
             _ => {
+                panic!("token trouble 1: {:?}", self.current_token());
                 Err(TickError::UnprocessableToken)
             }
         }
@@ -401,7 +402,10 @@ impl<
                 self.advance_token();
                 self.parse_negate(io)
             }
-            _ => Err(TickError::UnprocessableToken),
+            _ => {
+                panic!("token trouble 2: {:?}", self.current_token());
+                Err(TickError::UnprocessableToken)
+            }
         }
     }
 
