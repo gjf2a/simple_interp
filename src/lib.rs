@@ -1197,6 +1197,10 @@ impl<const BUFFER_SIZE: usize> ArrayString<BUFFER_SIZE> {
         self.len
     }
 
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
     pub fn as_str(&self) -> Result<&str, Utf8Error> {
         core::str::from_utf8(self.buffer_slice())
     }
