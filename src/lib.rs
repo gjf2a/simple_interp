@@ -132,10 +132,15 @@ impl<
         self.pending_assignment.is_some()
     }
 
-    pub fn provide_input(&mut self, input: &[char]) -> Result<(), TickError> {
+    pub fn provide_input(&mut self, input: &str) -> Result<(), TickError> {
         if !self.blocked_on_input() {
             return Err(TickError::UnexpectedInput);
         }
+        let mut char_buffer = ['\0'; OUTPUT_WIDTH];
+        for (i, c) in input.char_indices() {
+            char_buffer[i] = c;
+        }
+        let input = &char_buffer[..input.len()];
         let var = self.pending_assignment.unwrap();
         if input.len() == 0 {
             self.malloc_string(&[' '])?;
@@ -1521,7 +1526,7 @@ print((4 * sum))"#,
         let mut out = DummyOutput::default();
         let status1 = interp.tick(&mut out);
         assert_eq!(status1, TickStatus::AwaitInput);
-        interp.provide_input(&['5']);
+        interp.provide_input("5").unwrap();
         let status2 = interp.tick(&mut out);
         assert_eq!(status2, TickStatus::Continuing);
         assert_eq!("Enter a number:\n5\n", out.as_str());
@@ -1564,9 +1569,9 @@ print((4 * sum))"#,
                 TickStatus::Finished => break,
                 TickStatus::AwaitInput => {
                     if quit {
-                        interp.provide_input(&['q', 'u', 'i', 't']);
+                        interp.provide_input("quit").unwrap();
                     } else {
-                        interp.provide_input(&['4']);
+                        interp.provide_input("4").unwrap();
                         quit = true;
                     }
                 }
@@ -1586,7 +1591,7 @@ print((4 * sum))"#,
             DummyHeap,
         >::new(STARTER_FILES[3]);
 
-        const INPUTS: [[char; 4]; 5] = [['1', '1', '1', '1'], ['1', '1', '1', '3'], ['1', '1', '1', '5'], ['1', '1', '1', '7'], ['q', 'u', 'i', 't']];
+        let inputs = ["1113", "1115", "1117", "1119", "quit"];
         let mut input = 0;
         let mut io = DummyOutput::default();
         loop {
@@ -1594,12 +1599,12 @@ print((4 * sum))"#,
                 TickStatus::Continuing => {}
                 TickStatus::Finished => break,
                 TickStatus::AwaitInput => {
-                    interp.provide_input(&INPUTS[input]);
+                    interp.provide_input(&inputs[input]).unwrap();
                     input += 1;
                 }
             }
         }
-        assert_eq!("Enter a number:\nEnter a number:\nEnter a number:\nEnter a number:\nEnter a number:\n1114\n", io.as_str());
+        assert_eq!("Enter a number:\nEnter a number:\nEnter a number:\nEnter a number:\nEnter a number:\n1116\n", io.as_str());
     }
 
     #[test]
@@ -1618,7 +1623,7 @@ print((4 * sum))"#,
                 TickStatus::Continuing => {}
                 TickStatus::Finished => break,
                 TickStatus::AwaitInput => {
-                    interp.provide_input(&['1', '0']);
+                    interp.provide_input("10").unwrap();
                 }
             }
         }

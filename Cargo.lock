@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "simple_interp"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "bare_metal_deque",
  "bare_metal_map",
