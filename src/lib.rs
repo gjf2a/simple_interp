@@ -138,7 +138,7 @@ impl<
         }
         let var = self.pending_assignment.unwrap();
         if input.len() == 0 {
-            self.malloc_string(&['\0'])?;
+            self.malloc_string(&[' '])?;
         } else if is_number(input) {
             self.malloc_number(input)?
         } else {
