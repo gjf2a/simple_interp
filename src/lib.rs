@@ -9,15 +9,15 @@
 
 use core::cmp::min;
 use core::default::Default;
+use core::fmt::{self, Write};
 use core::ops::{Add, Div, Mul, Sub};
 use core::option::Option;
 use core::option::Option::{None, Some};
 use core::result::Result;
-use core::fmt::{self, Write};
 use core::str::Utf8Error;
 
+use bare_metal_deque::BareMetalDeque;
 use bare_metal_map::BareMetalMap;
-use bare_metal_queue::BareMetalStack;
 use gc_headers::{GarbageCollectingHeap, HeapError, Pointer, Tracer};
 
 use thiserror_no_std::Error;
@@ -162,10 +162,12 @@ impl<
                 }
             }
         }
-        
     }
 
-    fn parse_next_cmd<I: InterpreterOutput>(&mut self, io: &mut I) -> Result<TickStatus, TickError> {
+    fn parse_next_cmd<I: InterpreterOutput>(
+        &mut self,
+        io: &mut I,
+    ) -> Result<TickStatus, TickError> {
         match self.current_token() {
             Token::Print => {
                 self.advance_token();
@@ -189,10 +191,7 @@ impl<
                 self.skip_block()
             }
             Token::CloseCurly => self.parse_block_end(),
-            _ => {
-                panic!("token trouble 1: {:?}", self.current_token());
-                Err(TickError::UnprocessableToken)
-            }
+            _ => Err(TickError::UnprocessableToken)
         }
     }
 
@@ -402,10 +401,7 @@ impl<
                 self.advance_token();
                 self.parse_negate(io)
             }
-            _ => {
-                panic!("token trouble 2: {:?}", self.current_token());
-                Err(TickError::UnprocessableToken)
-            }
+            _ => Err(TickError::UnprocessableToken)
         }
     }
 
@@ -601,7 +597,6 @@ impl<
         match self.current_token() {
             Token::OpenParen => {
                 self.advance_token();
-                self.parse_expr(io)?;
                 match self.parse_expr(io)? {
                     TickStatus::Continuing => {
                         let value = self.variables.pop_value();
@@ -928,7 +923,7 @@ pub struct VarTracer<
     const STACK_DEPTH: usize,
 > {
     vars: BareMetalMap<Variable<MAX_LITERAL_CHARS>, Value, MAX_LOCAL_VARS>,
-    expr_stack: BareMetalStack<Value, STACK_DEPTH>,
+    expr_stack: BareMetalDeque<Value, STACK_DEPTH>,
 }
 
 impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DEPTH: usize> Tracer
@@ -953,7 +948,7 @@ impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DE
     pub fn new() -> Self {
         Self {
             vars: BareMetalMap::new(),
-            expr_stack: BareMetalStack::new(),
+            expr_stack: BareMetalDeque::new(),
         }
     }
 
@@ -966,11 +961,11 @@ impl<const MAX_LOCAL_VARS: usize, const MAX_LITERAL_CHARS: usize, const STACK_DE
     }
 
     fn push_value(&mut self, v: Value) {
-        self.expr_stack.push(v);
+        self.expr_stack.push_back(v);
     }
 
     fn pop_value(&mut self) -> Value {
-        self.expr_stack.pop()
+        self.expr_stack.pop_back().unwrap()
     }
 }
 
@@ -1192,7 +1187,7 @@ impl<const BUFFER_SIZE: usize> ArrayString<BUFFER_SIZE> {
         self.len
     }
 
-    pub fn as_str(&self) -> Result::<&str, Utf8Error> {
+    pub fn as_str(&self) -> Result<&str, Utf8Error> {
         core::str::from_utf8(self.buffer_slice())
     }
 
@@ -1208,7 +1203,10 @@ impl<const BUFFER_SIZE: usize> ArrayString<BUFFER_SIZE> {
 
 impl<const BUFFER_SIZE: usize> Default for ArrayString<BUFFER_SIZE> {
     fn default() -> Self {
-        Self { buf: [0; BUFFER_SIZE], len: 0 }
+        Self {
+            buf: [0; BUFFER_SIZE],
+            len: 0,
+        }
     }
 }
 
@@ -1227,6 +1225,8 @@ impl<const BUFFER_SIZE: usize> Write for ArrayString<BUFFER_SIZE> {
 mod tests {
     use core::fmt::Display;
     use std::fs::read_to_string;
+
+    use bare_metal_deque::BareMetalDeque;
 
     use super::*;
 
@@ -1363,5 +1363,230 @@ mod tests {
 
         assert!(is_number(&['1', '0']));
         assert!(is_number(&['1', '.', '0', '1']));
+    }
+
+    const MAX_TOKENS: usize = 500;
+    const MAX_LITERAL_CHARS: usize = 30;
+    const STACK_DEPTH: usize = 50;
+    const MAX_LOCAL_VARS: usize = 20;
+    const HEAP_SIZE: usize = 1024;
+    const WIN_WIDTH: usize = 40;
+
+    #[derive(Copy, Clone)]
+    struct DummyHeap {
+        words: BareMetalDeque<u64, HEAP_SIZE>,
+        block_starts: BareMetalDeque<usize, HEAP_SIZE>,
+        block_sizes: BareMetalDeque<usize, HEAP_SIZE>,
+        next_address: usize,
+    }
+
+    impl GarbageCollectingHeap for DummyHeap {
+        fn new() -> Self {
+            Self {
+                words: BareMetalDeque::new(),
+                block_starts: BareMetalDeque::new(),
+                block_sizes: BareMetalDeque::new(),
+                next_address: 0,
+            }
+        }
+
+        fn load(&self, p: Pointer) -> Result<u64, HeapError> {
+            Ok(self.words[self.address(p).unwrap()])
+        }
+
+        fn store(&mut self, p: Pointer, value: u64) -> Result<(), HeapError> {
+            let addr = self.address(p).unwrap();
+            self.words[addr] = value;
+            Ok(())
+        }
+
+        fn malloc<T: Tracer>(&mut self, num_words: usize, _: &T) -> Result<Pointer, HeapError> {
+            let addr = self.next_address;
+            let block = self.block_starts.len();
+            for _ in 0..num_words {
+                self.words.push_back(0);
+            }
+            self.next_address = self.words.len();
+            self.block_starts.push_back(addr);
+            self.block_sizes.push_back(num_words);
+            Ok(Pointer::new(block, num_words))
+        }
+
+        fn address(&self, p: Pointer) -> Result<usize, HeapError> {
+            Ok(self.block_starts[p.block_num()] + p.offset())
+        }
+
+        fn blocks_in_use(&self) -> impl Iterator<Item = usize> {
+            0..self.block_starts.len()
+        }
+
+        fn allocated_block_ptr(&self, block: usize) -> Option<Pointer> {
+            Some(Pointer::new(block, self.block_sizes[block]))
+        }
+
+        fn blocks_num_copies(&self) -> impl Iterator<Item = (usize, usize)> {
+            self.blocks_in_use().zip(std::iter::repeat(0))
+        }
+
+        fn assert_no_strays(&self) {}
+    }
+
+    #[derive(Default)]
+    struct DummyOutput {
+        char_bytes: Vec<u8>,
+    }
+
+    impl DummyOutput {
+        fn as_str(&self) -> &str {
+            std::str::from_utf8(&self.char_bytes[..]).unwrap()
+        }
+    }
+
+    impl InterpreterOutput for DummyOutput {
+        fn print(&mut self, chars: &[u8]) {
+            for c in chars.iter() {
+                self.char_bytes.push(*c);
+            }
+        }
+    }
+
+    const STARTER_FILES: [&str; 5] = [
+        r#"num := input("Enter a number:")
+print(num)"#,
+        r#"print("Hello, world!")"#,
+        "print(1)
+print(257)",
+            r#"sum := 0
+count := 0
+averaging := true
+while averaging {
+    num := input("Enter a number:")
+    if (num == "quit") {
+        averaging := false
+    } else {
+        sum := (sum + num)
+        count := (count + 1)
+    }
+}
+print((sum / count))"#,
+        r#"sum := 0
+i := 0
+neg := false
+terms := input("Num terms:")
+while (i < terms) {
+    term := (1.0 / ((2.0 * i) + 1.0))
+    if neg {
+        term := -term
+    }
+    sum := (sum + term)
+    neg := not neg
+    i := (i + 1)
+}
+print((4 * sum))"#,
+        
+    ];
+
+    #[test]
+    fn test_hello_world() {
+        let mut interp = Interpreter::<
+        MAX_TOKENS,
+        MAX_LITERAL_CHARS,
+        STACK_DEPTH,
+        MAX_LOCAL_VARS,
+        WIN_WIDTH,
+        DummyHeap,
+    >::new(STARTER_FILES[1]);
+
+    let mut out = DummyOutput::default();
+    while let TickStatus::Continuing = interp.tick(&mut out) {}
+    assert_eq!("Hello, world!\n", out.as_str());
+    }
+
+    #[test]
+    fn test_input() {
+        let mut interp = Interpreter::<
+            MAX_TOKENS,
+            MAX_LITERAL_CHARS,
+            STACK_DEPTH,
+            MAX_LOCAL_VARS,
+            WIN_WIDTH,
+            DummyHeap,
+        >::new(STARTER_FILES[0]);
+
+        let mut out = DummyOutput::default();
+        let status1 = interp.tick(&mut out);
+        assert_eq!(status1, TickStatus::AwaitInput);
+        interp.provide_input(&['5']);
+        let status2 = interp.tick(&mut out);
+        assert_eq!(status2, TickStatus::Continuing);
+        assert_eq!("Enter a number:\n5\n", out.as_str());
+        let status2 = interp.tick(&mut out);
+        assert_eq!(status2, TickStatus::Finished);
+    }
+
+    #[test]
+    fn test_nums() {
+        let mut interp = Interpreter::<
+            MAX_TOKENS,
+            MAX_LITERAL_CHARS,
+            STACK_DEPTH,
+            MAX_LOCAL_VARS,
+            WIN_WIDTH,
+            DummyHeap,
+        >::new(STARTER_FILES[2]);
+
+        let mut out = DummyOutput::default();
+        while let TickStatus::Continuing = interp.tick(&mut out) {}
+        assert_eq!("1\n257\n", out.as_str());
+    }
+
+    #[test]
+    fn test_average() {
+        let mut interp = Interpreter::<
+            MAX_TOKENS,
+            MAX_LITERAL_CHARS,
+            STACK_DEPTH,
+            MAX_LOCAL_VARS,
+            WIN_WIDTH,
+            DummyHeap,
+        >::new(STARTER_FILES[3]);
+
+        const INPUTS: [[char; 4]; 5] = [['1', '1', '1', '1'], ['1', '1', '1', '3'], ['1', '1', '1', '5'], ['1', '1', '1', '7'], ['q', 'u', 'i', 't']];
+        let mut input = 0;
+        let mut io = DummyOutput::default();
+        loop {
+            match interp.tick(&mut io) {
+                TickStatus::Continuing => {}
+                TickStatus::Finished => break,
+                TickStatus::AwaitInput => {
+                    interp.provide_input(&INPUTS[input]);
+                    input += 1;
+                }
+            }
+        }
+        assert_eq!("Enter a number:\nEnter a number:\nEnter a number:\nEnter a number:\nEnter a number:\n1114\n", io.as_str());
+    }
+
+    #[test]
+    fn test_pi() {
+        let mut interp = Interpreter::<
+            MAX_TOKENS,
+            MAX_LITERAL_CHARS,
+            STACK_DEPTH,
+            MAX_LOCAL_VARS,
+            WIN_WIDTH,
+            DummyHeap,
+        >::new(STARTER_FILES[4]);
+        let mut io = DummyOutput::default();
+        loop {
+            match interp.tick(&mut io) {
+                TickStatus::Continuing => {}
+                TickStatus::Finished => break,
+                TickStatus::AwaitInput => {
+                    interp.provide_input(&['1', '0']);
+                }
+            }
+        }
+        assert_eq!("Num terms:\n3.04183961892940324\n", io.as_str());
     }
 }
