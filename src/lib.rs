@@ -137,7 +137,9 @@ impl<
             return Err(TickError::UnexpectedInput);
         }
         let var = self.pending_assignment.unwrap();
-        if is_number(input) {
+        if input.len() == 0 {
+            self.malloc_string(&['\0'])?;
+        } else if is_number(input) {
             self.malloc_number(input)?
         } else {
             self.malloc_string(input)?
