@@ -1541,7 +1541,37 @@ print((4 * sum))"#,
     }
 
     #[test]
-    fn test_average() {
+    fn test_average_1() {
+        let mut interp = Interpreter::<
+            MAX_TOKENS,
+            MAX_LITERAL_CHARS,
+            STACK_DEPTH,
+            MAX_LOCAL_VARS,
+            WIN_WIDTH,
+            DummyHeap,
+        >::new(STARTER_FILES[3]);
+
+        let mut quit = false;
+        let mut io = DummyOutput::default();
+        loop {
+            match interp.tick(&mut io) {
+                TickStatus::Continuing => {}
+                TickStatus::Finished => break,
+                TickStatus::AwaitInput => {
+                    if quit {
+                        interp.provide_input(&['q', 'u', 'i', 't']);
+                    } else {
+                        interp.provide_input(&['4']);
+                        quit = true;
+                    }
+                }
+            }
+        }
+        assert_eq!("Enter a number:\nEnter a number:\n4\n", io.as_str());
+    }
+
+    #[test]
+    fn test_average_2() {
         let mut interp = Interpreter::<
             MAX_TOKENS,
             MAX_LITERAL_CHARS,
