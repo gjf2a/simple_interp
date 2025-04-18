@@ -56,6 +56,8 @@ pub enum TickError {
     HeapIssue(HeapError),
     #[error("Awaiting input, but advanced by one tick anyway")]
     TickWhileAwaitingInput,
+    #[error("Received input but not awaiting it")]
+    UnexpectedInput,
     #[error("Cannot negate")]
     NotNegateable,
     #[error("Unmatched parentheses")]
@@ -130,20 +132,21 @@ impl<
         self.pending_assignment.is_some()
     }
 
-    pub fn provide_input(&mut self, input: &[char]) {
+    pub fn provide_input(&mut self, input: &[char]) -> Result<(), TickError> {
         if !self.blocked_on_input() {
-            panic!("Called provide_input() when no input was expected.");
+            return Err(TickError::UnexpectedInput);
         }
         let var = self.pending_assignment.unwrap();
         if is_number(input) {
-            self.malloc_number(input)
+            self.malloc_number(input)?
         } else {
-            self.malloc_string(input)
+            self.malloc_string(input)?
         }
-        .unwrap();
+    
         let value = self.variables.pop_value();
         self.variables.assign(var, value);
         self.pending_assignment = None;
+        Ok(())
     }
 
     pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> TickStatus {
