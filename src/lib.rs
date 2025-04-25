@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+//#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -167,14 +167,17 @@ impl<
         if self.blocked_on_input() {
             TickStatus::AwaitInput
         } else if self.token == self.tokens.num_tokens {
+            println!("out o' tokens; token {}/{}", self.token, self.tokens.num_tokens);
             TickStatus::Finished
         } else {
+            println!("parsing next cmd");
             match self.parse_next_cmd(io) {
                 Ok(status) => status,
                 Err(e) => {
                     let mut error_buffer = ArrayString::<100>::default();
                     write!(&mut error_buffer, "{e:?}").unwrap();
                     io.print(error_buffer.buffer_slice());
+                    println!("Error: {e:?}");
                     TickStatus::Finished
                 }
             }
@@ -1124,6 +1127,10 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize>
                 try_add_char!(c, num_chars, str_buffer);
             }
         }
+        println!("str buffer:  {str_buffer:?}, num_chars: {num_chars}");
+        if num_chars > 0 {
+            try_terminate!(result, num_chars, str_buffer);
+        }
         TokenResult::Ok(result)
     }
 
@@ -1510,7 +1517,7 @@ print((4 * sum))"#,
     #[test]
     fn token_counts() {
         let tokens = Tokenized::<100, 100>::tokenize(STARTER_FILES[4]).unwrap();
-        println!("{}", tokens.num_tokens);
+        assert_eq!(72, tokens.num_tokens);
     }
 
     #[test]
@@ -1648,5 +1655,21 @@ print((4 * sum))"#,
         }
         assert_eq!("Num terms:\n3.04183961892940324\n", io.as_str());
         assert_eq!(87, interp.total_ticks());
+    }
+
+    #[test]
+    fn test_nonsense() {
+        let mut interp = Interpreter::<
+            MAX_TOKENS,
+            MAX_LITERAL_CHARS,
+            STACK_DEPTH,
+            MAX_LOCAL_VARS,
+            WIN_WIDTH,
+            DummyHeap,
+        >::new("hello");
+        let mut io = DummyOutput::default();
+        let status = interp.tick(&mut io);
+        assert_eq!(status, TickStatus::Finished);
+        assert_eq!("UnprocessableSymbol", io.as_str());
     }
 }
