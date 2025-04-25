@@ -41,6 +41,7 @@ pub struct Interpreter<
     variables: VarTracer<MAX_LOCAL_VARS, MAX_LITERAL_CHARS, STACK_DEPTH>,
     pending_assignment: Option<Variable<MAX_LITERAL_CHARS>>,
     brace_stacker: BraceStacker<STACK_DEPTH>,
+    total_ticks: usize,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -104,6 +105,7 @@ impl<
             variables: VarTracer::new(),
             pending_assignment: None,
             brace_stacker: BraceStacker::new(),
+            total_ticks: 0,
         }
     }
 
@@ -156,7 +158,12 @@ impl<
         Ok(())
     }
 
+    pub fn total_ticks(&self) -> usize {
+        self.total_ticks
+    }
+
     pub fn tick<I: InterpreterOutput>(&mut self, io: &mut I) -> TickStatus {
+        self.total_ticks += 1;
         if self.blocked_on_input() {
             TickStatus::AwaitInput
         } else if self.token == self.tokens.num_tokens {
@@ -1501,6 +1508,12 @@ print((4 * sum))"#,
     ];
 
     #[test]
+    fn token_counts() {
+        let tokens = Tokenized::<100, 100>::tokenize(STARTER_FILES[4]).unwrap();
+        println!("{}", tokens.num_tokens);
+    }
+
+    #[test]
     fn test_hello_world() {
         let mut interp = Interpreter::<
         MAX_TOKENS,
@@ -1582,6 +1595,7 @@ print((4 * sum))"#,
             }
         }
         assert_eq!("Enter a number:\nEnter a number:\n4\n", io.as_str());
+        assert_eq!(20, interp.total_ticks());
     }
 
     #[test]
@@ -1609,6 +1623,7 @@ print((4 * sum))"#,
             }
         }
         assert_eq!("Enter a number:\nEnter a number:\nEnter a number:\nEnter a number:\nEnter a number:\n1116\n", io.as_str());
+        assert_eq!(41, interp.total_ticks());
     }
 
     #[test]
@@ -1632,5 +1647,6 @@ print((4 * sum))"#,
             }
         }
         assert_eq!("Num terms:\n3.04183961892940324\n", io.as_str());
+        assert_eq!(87, interp.total_ticks());
     }
 }
