@@ -10,3 +10,8 @@ bare_metal_map = {git = "https://github.com/gjf2a/bare_metal_map"}
 gc_headers = {git = "https://github.com/gjf2a/gc_headers"}
 bare_metal_deque = "0.1.0"
 thiserror-no-std = "2.0.2"
+
+[dependencies.num-traits]
+version = "0.2"
+default-features = false
+features = ["libm"] 

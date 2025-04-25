@@ -85,6 +85,8 @@ pub enum TickError {
     UnprocessableSymbol,
     #[error("Unimplemented operation")]
     UnimplementedOpeartion,
+    #[error("Overflow")]
+    Overflow,
 }
 
 impl<
@@ -646,7 +648,7 @@ impl<
             let float_val = parse_float_from(n);
             (ValueType::Float, float_val.to_bits())
         } else {
-            let int_val = parse_int_from(n);
+            let int_val = parse_int_from(n)?;
             (ValueType::Integer, int_val)
         };
         self.malloc_numeric_value(value, t)
@@ -808,13 +810,20 @@ enum ValueType {
     Boolean,
 }
 
-fn parse_int_from(chars: &[char]) -> u64 {
-    let mut value = 0;
+fn parse_int_from(chars: &[char]) -> Result<u64,TickError> {
+    let mut value = 0_u64;
     for c in chars.iter().take_while(|c| **c != '\0') {
-        value *= 10;
-        value += *c as u64 - '0' as u64;
+        match value.checked_mul(10) {
+            Some(product) => {
+                value = product;
+                value += *c as u64 - '0' as u64;
+            }
+            None => {
+                return Err(TickError::Overflow);
+            }
+        }        
     }
-    value
+    Ok(value)
 }
 
 fn make_signed_from(value: u64) -> i64 {
@@ -1312,7 +1321,7 @@ mod tests {
     fn test_parse_int() {
         for s in [['1', '0'], ['1', '2'], ['2', '1'], ['4', '3']] {
             let expected = s.iter().collect::<String>().parse::<u64>().unwrap();
-            assert_eq!(expected, parse_int_from(&s));
+            assert_eq!(expected, parse_int_from(&s).unwrap());
         }
     }
 
@@ -1655,7 +1664,7 @@ print((4 * sum))"#,
     }
 
     #[test]
-    fn test_nonsense() {
+    fn test_single_token_program() {
         let mut interp = Interpreter::<
             MAX_TOKENS,
             MAX_LITERAL_CHARS,
@@ -1668,5 +1677,21 @@ print((4 * sum))"#,
         let status = interp.tick(&mut io);
         assert_eq!(status, TickStatus::Finished);
         assert_eq!("UnprocessableSymbol", io.as_str());
+    }
+
+    #[test]
+    fn test_overflow() {
+        let mut interp = Interpreter::<
+            MAX_TOKENS,
+            MAX_LITERAL_CHARS,
+            STACK_DEPTH,
+            MAX_LOCAL_VARS,
+            WIN_WIDTH,
+            DummyHeap,
+        >::new(r#"print(111111111111111111111)"#);
+        let mut io = DummyOutput::default();
+        let status = interp.tick(&mut io);
+        assert_eq!(status, TickStatus::Finished);
+        assert_eq!("Overflow", io.as_str());
     }
 }
