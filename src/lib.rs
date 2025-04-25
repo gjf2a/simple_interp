@@ -1,4 +1,4 @@
-//#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 // With weird git errors that mess with rust-analyzer, try this:
 //
@@ -167,17 +167,14 @@ impl<
         if self.blocked_on_input() {
             TickStatus::AwaitInput
         } else if self.token == self.tokens.num_tokens {
-            println!("out o' tokens; token {}/{}", self.token, self.tokens.num_tokens);
             TickStatus::Finished
         } else {
-            println!("parsing next cmd");
             match self.parse_next_cmd(io) {
                 Ok(status) => status,
                 Err(e) => {
                     let mut error_buffer = ArrayString::<100>::default();
                     write!(&mut error_buffer, "{e:?}").unwrap();
                     io.print(error_buffer.buffer_slice());
-                    println!("Error: {e:?}");
                     TickStatus::Finished
                 }
             }
@@ -1127,10 +1124,10 @@ impl<const MAX_TOKENS: usize, const MAX_LITERAL_CHARS: usize>
                 try_add_char!(c, num_chars, str_buffer);
             }
         }
-        println!("str buffer:  {str_buffer:?}, num_chars: {num_chars}");
         if num_chars > 0 {
             try_terminate!(result, num_chars, str_buffer);
         }
+        assert_eq!(num_chars, 0); // Macro triggers compiler warning that num_chars has not been read. This fixes the warning.
         TokenResult::Ok(result)
     }
 
